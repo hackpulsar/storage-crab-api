@@ -1,5 +1,6 @@
 use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
 use jsonwebtoken::{decode, DecodingKey, Validation};
+use redis::AsyncCommands;
 use sqlx::{Row};
 use serde::{Deserialize, Serialize};
 use crate::jwt_token_pair::{Claims, JwtTokenPair, TokenType};
@@ -138,6 +139,7 @@ struct RefreshRequest {
     refresh_token: String,
 }
 
+// Token refresh endpoint
 #[post("/api/token/refresh/")]
 async fn refresh_token(
     req: web::Json<RefreshRequest>,
@@ -156,11 +158,31 @@ async fn refresh_token(
                 return HttpResponse::Unauthorized().body("Wrong token type");
             }
 
-            // Refresh token pair
-            HttpResponse::Ok().json(JwtTokenPair::generate_for(
-                decoded_data.claims.sub,
-                data.secret.clone()
-            ))
+            // Check if token is blacklisted
+            match data.redis_pool.get().await {
+                Ok(mut conn) => {
+                    let is_blacklisted: Option<String> = conn.get(decoded_data.claims.jti.clone()).await.ok();
+                    match is_blacklisted {
+                        Some(_) => HttpResponse::Unauthorized().body("Token is blacklisted."),
+                        None => {
+                            // Blacklist refresh token used with expiration date.
+                            // Redis will delete this entry as soon as the token gets expired.
+                            let _: () = conn.set_ex(
+                                decoded_data.claims.jti.clone(),
+                                req.refresh_token.clone(),
+                                (decoded_data.claims.exp - (chrono::Utc::now().timestamp() as usize)) as u64
+                            ).await.unwrap();
+
+                            // Refresh token pair
+                            HttpResponse::Ok().json(JwtTokenPair::generate_for(
+                                decoded_data.claims.sub,
+                                data.secret.clone()
+                            ))
+                        }
+                    }
+                },
+                Err(_) => HttpResponse::InternalServerError().body("Connection to Redis failed.")
+            }
         },
         None => HttpResponse::Unauthorized().body("Invalid or expired refresh token")
     }

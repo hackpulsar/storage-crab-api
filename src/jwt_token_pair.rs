@@ -1,12 +1,14 @@
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,        // subject (whom token refers to)
-    pub exp: usize,         // token expiration date
-    pub token_type: TokenType, // token type (access or refresh)
+    pub sub: String,            // subject (whom token refers to)
+    pub exp: usize,             // token expiration date
+    pub token_type: TokenType,  // token type (access or refresh)
+    pub jti: String,            // token id
 }
 
 // Represents a token pair
@@ -24,17 +26,24 @@ pub enum TokenType {
 }
 
 impl JwtTokenPair {
+    // Generates a new token pair with the following lifetime
+    // Access: 10 minutes
+    // Refresh: 30 minutes
     pub fn generate_for(user_email: String, secret: String) -> Self {
-        let expiration = chrono::Utc::now() + chrono::Duration::minutes(10);
+        let access_exp = chrono::Utc::now() + chrono::Duration::minutes(10);
+        let refresh_exp = chrono::Utc::now() + chrono::Duration::minutes(30);
+
         let access_claims = Claims {
             sub: user_email.clone(),
-            exp: expiration.timestamp() as usize,
+            exp: access_exp.timestamp() as usize,
             token_type: TokenType::Access,
+            jti: Uuid::new_v4().to_string(),
         };
         let refresh_claims = Claims {
             sub: user_email.clone(),
-            exp: expiration.timestamp() as usize,
+            exp: refresh_exp.timestamp() as usize,
             token_type: TokenType::Refresh,
+            jti: Uuid::new_v4().to_string(),
         };
 
         // Return a freshly generated token pair
