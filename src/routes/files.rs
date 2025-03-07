@@ -41,28 +41,29 @@ async fn upload_file(
                 .fetch_one(&data.db)
                 .await;
 
-            match res {
-                Ok(row) => {
-                    let username: String = row.get("username");
-                    // Hash username
-                    let salt = SaltString::generate(&mut OsRng);
-                    let argon2 = Argon2::default();
-                    let username_hash = argon2.hash_password(username.as_bytes(), &salt)
-                        .map_err(|_| AppError::InternalServerError { msg: "Username hash failed".to_string() } )?
-                        .to_string();
+            let row = res
+                .map_err(|_| AppError::InternalServerError { msg: "Username retrieve query failed".to_string() } )?;
 
-                    // Create dirs for file of don't exist
-                    fs::create_dir_all(format!("./files/{}", username_hash))
-                        .map_err(|_| AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() })?;
-                    // Save file on disk
-                    let path = format!("./files/{}/{}", username_hash, form.json.filename);
-                    form.file.file.persist(&path)
-                        .map_err(|_| AppError::InternalServerError { msg: "Couldn't write file".to_string() })?;
+            let username: String = row.get("username");
+            // Hash username
+            let salt = SaltString::generate(&mut OsRng);
+            let argon2 = Argon2::default();
+            let username_hash = argon2.hash_password(username.as_bytes(), &salt)
+                .map_err(|_| AppError::InternalServerError { msg: "Username hash failed".to_string() } )?
+                .to_string();
 
-                    Ok(HttpResponse::Ok().body(format!("File written to {}", path)))
-                },
-                Err(_) => Err(AppError::InternalServerError { msg: "Username retrieve query failed".to_string() })
-            }
+            // Path to files storage
+            let storage_path = std::env::var("FILES_STORAGE_PATH").unwrap();
+
+            // Create dirs for file of don't exist
+            fs::create_dir_all(format!("{}/{}", storage_path, username_hash))
+                .map_err(|_| AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() })?;
+            // Save file on disk
+            let path = format!("{}/{}/{}", storage_path, username_hash, form.json.filename);
+            form.file.file.persist(&path)
+                .map_err(|_| AppError::InternalServerError { msg: "Couldn't write file".to_string() })?;
+
+            Ok(HttpResponse::Ok().body(format!("File written to {}", path)))
         },
         None => Err(AppError::Unauthorized)
     }

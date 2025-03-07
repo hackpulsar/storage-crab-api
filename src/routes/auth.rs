@@ -24,8 +24,10 @@ pub async fn greet(
                 .await;
 
             match res {
-                Ok(row) => Ok(HttpResponse::Ok()
-                    .body(format!("Welcome back, {}", row.get::<String, _>("username")))),
+                Ok(row) => Ok(
+                    HttpResponse::Ok()
+                        .body(format!("Welcome back, {}", row.get::<String, _>("username")))
+                ),
                 Err(_) => Err(AppError::InternalServerError { msg: "Query failed".to_string() }),
             }
         },
