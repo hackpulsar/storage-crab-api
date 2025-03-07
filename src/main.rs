@@ -1,10 +1,14 @@
-mod auth_services;
-mod jwt_token_pair;
+mod files_services;
+mod services;
+mod utils;
+mod routes;
+mod models;
 
 use actix_web::{web, App, HttpServer};
 use deadpool_redis::{Config, Runtime};
 use sqlx::{Pool, Postgres};
-use crate::jwt_token_pair::generate_shared_secret;
+use crate::routes::init_routes;
+use crate::utils::generate_shared_secret;
 
 // Holds app state
 pub struct AppState {
@@ -53,10 +57,7 @@ async fn main() -> std::io::Result<()> {
                 db: pool.clone(),
                 redis_pool: redis_pool.clone(),
             }))
-            .service(auth_services::create_user)
-            .service(auth_services::greet)
-            .service(auth_services::login)
-            .service(auth_services::refresh_token)
+            .configure(init_routes)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
