@@ -6,7 +6,7 @@ use derive_more::Display;
 // Errors tha occur during app runtime
 #[derive(Debug, Display)]
 pub enum AppError {
-    #[display("Unauthorized error")]
+    #[display("Unauthorized access")]
     Unauthorized,
 
     #[display("Bad request: {}", msg)]

@@ -78,8 +78,8 @@ async fn login(
     // Send jwt token pair on successful login
     let row = res.map_err(|_| AppError::InternalServerError { msg: "Login query failed".to_string() })?;
     match row {
-        Some(entry) => {
-            if user.verify_password(&entry.get::<String, _>("password")) {
+        Some(record) => {
+            if user.verify_password(&record.get::<String, _>("password")) {
                 let user_email: String = user.email.clone();
                 Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
                     user_email,

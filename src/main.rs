@@ -1,4 +1,3 @@
-mod files_services;
 mod services;
 mod utils;
 mod routes;
@@ -28,9 +27,7 @@ async fn main() -> std::io::Result<()> {
 
     // Connecting to a database
     println!("Connecting to the database...");
-    let pool = sqlx::postgres::PgPool::connect(db_url.as_str())
-        .await
-        .expect("DB connection failed");
+    let pool = create_db_pool(db_url.to_string()).await;
     println!("Successfully connected to the database.");
 
     println!("Connecting to Redis...");
@@ -62,6 +59,14 @@ async fn main() -> std::io::Result<()> {
     .bind(("127.0.0.1", 8080))?
     .run()
     .await
+}
+
+// Connects to a database and returns a pool
+async fn create_db_pool(db_url: String) -> Pool<Postgres> {
+    match sqlx::postgres::PgPool::connect(db_url.as_str()).await {
+        Ok(pool) => pool,
+        Err(e) => panic!("DB connection failed: {}", e)
+    }
 }
 
 // Creates new redis pool from URL
