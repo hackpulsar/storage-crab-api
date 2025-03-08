@@ -28,18 +28,18 @@ impl JwtTokenPair {
     // Generates a new token pair with the following lifetime
     // Access: 10 minutes
     // Refresh: 30 minutes
-    pub fn generate_for(user_email: String, secret: String) -> Self {
+    pub fn generate_for(user_id: String, secret: String) -> Self {
         let access_exp = chrono::Utc::now() + chrono::Duration::minutes(10);
         let refresh_exp = chrono::Utc::now() + chrono::Duration::minutes(30);
 
         let access_claims = Claims {
-            sub: user_email.clone(),
+            sub: user_id.clone(),
             exp: access_exp.timestamp() as usize,
             token_type: TokenType::Access,
             jti: Uuid::new_v4().to_string(),
         };
         let refresh_claims = Claims {
-            sub: user_email.clone(),
+            sub: user_id.clone(),
             exp: refresh_exp.timestamp() as usize,
             token_type: TokenType::Refresh,
             jti: Uuid::new_v4().to_string(),

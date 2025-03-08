@@ -6,18 +6,13 @@ edition = "2021"
 [dependencies]
 actix-web = "4"
 actix-multipart = "0.7.2"
-sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls"] }
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "chrono"] }
 serde = { version = "1.0", features = ["derive"] }
 jsonwebtoken = "9"
-chrono = "0.4"
+chrono = {  version = "0.4", features = ["serde"]}
 redis = { version ="0.29.1", features = ["tokio-comp"] }
 deadpool-redis = "0.20.0"
 dotenv = "0.15.0"
 derive_more = {  version = "2.0.1", features = ["display"] }
 argon2 = "0.5"
-
-[dependencies.uuid]
-version = "1.15.1"
-features = [
-    "v4",
-]
+uuid = { version = "1.15.1", features = ["v4"] }

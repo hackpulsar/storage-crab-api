@@ -29,3 +29,11 @@ pub fn validate_jwt(token: &str, secret: &str) -> Option<TokenData<Claims>> {
         &Validation::default(),
     ).ok()
 }
+
+pub fn get_and_validate_jwt(req: &HttpRequest, secret: &str) -> Result<TokenData<Claims>, AppError> {
+    // Get the token
+    let token = get_jwt_from(req)
+        .map_err(|_| AppError::BadRequest { msg: "Failed to parse token".to_string() })?;
+    // Validate it
+    Ok(validate_jwt(token, secret).ok_or(AppError::Unauthorized)?)
+}

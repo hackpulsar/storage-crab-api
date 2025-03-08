@@ -4,24 +4,48 @@ use std::fs;
 use argon2::{
     password_hash::{
         rand_core::OsRng,
-        PasswordHasher, SaltString
+        PasswordHasher, SaltString,
     },
-    Argon2
+    Argon2,
 };
-use sqlx::Row;
+use sqlx::{Row};
 
 use crate::AppState;
 use crate::models::file::*;
-use crate::services::auth::{get_jwt_from, validate_jwt};
+use crate::services::auth::{get_and_validate_jwt};
 use crate::utils::errors::AppError;
 
 // Searches for all the files associated with given user
-/*#[post("/api/files/")]
+#[post("/api/files/")]
 async fn get_files(
+    req: HttpRequest,
     data: web::Data<AppState>,
-) -> impl Responder {
+) -> Result<HttpResponse, AppError> {
+    let decoded = get_and_validate_jwt(&req, data.secret.clone().as_str())?;
 
-}*/
+    let user_id: i32 = decoded.claims.sub
+        .parse::<i32>()
+        .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?;
+
+    let res = sqlx::query("select * from files where user_id = $1")
+        .bind(user_id)
+        .fetch_all(&data.db)
+        .await;
+
+    match res {
+        Ok(records) => {
+            // Convert to a custom File type
+            let data: Vec<File> = records
+                .into_iter()
+                .filter_map(|row| File::from_row(&row).ok())
+                .collect();
+
+            // Forming a response with all the files
+            Ok(HttpResponse::Ok().json(data))
+        }
+        Err(_) => Err(AppError::InternalServerError { msg: "Select files query failed".to_string() })
+    }
+}
 
 // Uploads a file to an authorized user storage
 #[post("/api/files/upload/")]
@@ -30,42 +54,64 @@ async fn upload_file(
     MultipartForm(form): MultipartForm<UploadForm>,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
-    // Validate token
-    let token = get_jwt_from(&req)?;
-    match validate_jwt(token, data.secret.clone().as_str()) {
-        Some(decoded_data) => {
-            // Retrieve username from db
-            let query = "select username from users where email = $1";
-            let res = sqlx::query(query)
-                .bind(decoded_data.claims.sub)
-                .fetch_one(&data.db)
-                .await;
+    let decoded = get_and_validate_jwt(&req, data.secret.clone().as_str())?;
 
-            let row = res
-                .map_err(|_| AppError::InternalServerError { msg: "Username retrieve query failed".to_string() } )?;
+    // Retrieve username from db
+    let res = sqlx::query("select username from users where id = $1")
+        .bind(
+            decoded.claims.sub
+                .parse::<i32>()
+                .map_err(|_| AppError::InternalServerError { msg: "Sub parse failed".to_string() })?
+        )
+        .fetch_one(&data.db)
+        .await;
 
-            let username: String = row.get("username");
-            // Hash username
-            let salt = SaltString::generate(&mut OsRng);
-            let argon2 = Argon2::default();
-            let username_hash = argon2.hash_password(username.as_bytes(), &salt)
-                .map_err(|_| AppError::InternalServerError { msg: "Username hash failed".to_string() } )?
-                .to_string();
+    let row = res
+        .map_err(|_| AppError::InternalServerError { msg: "Username retrieve query failed".to_string() })?;
 
-            // Path to files storage
-            let storage_path = std::env::var("FILES_STORAGE_PATH").unwrap();
+    let username: String = row.get("username");
+    // Hash username
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let username_hash = argon2.hash_password(username.as_bytes(), &salt)
+        .map_err(|_| AppError::InternalServerError { msg: "Username hash failed".to_string() })?
+        .to_string();
 
-            // Create dirs for file of don't exist
-            fs::create_dir_all(format!("{}/{}", storage_path, username_hash))
-                .map_err(|_| AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() })?;
-            // Save file on disk
-            let path = format!("{}/{}/{}", storage_path, username_hash, form.json.filename);
-            form.file.file.persist(&path)
-                .map_err(|_| AppError::InternalServerError { msg: "Couldn't write file".to_string() })?;
+    // Path to files storage
+    let storage_path = std::env::var("FILES_STORAGE_PATH").unwrap();
 
-            Ok(HttpResponse::Ok().body(format!("File written to {}", path)))
-        },
-        None => Err(AppError::Unauthorized)
+    // Create dirs for file of don't exist
+    fs::create_dir_all(format!("{}/{}", storage_path, username_hash))
+        .map_err(|_| AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() })?;
+    // Save file on disk
+    let path = format!("{}/{}/{}", storage_path, username_hash, form.json.filename.clone());
+    form.file.file.persist(&path)
+        .map_err(|_| AppError::InternalServerError { msg: "Couldn't write file".to_string() })?;
+
+    // Create a new record in files table
+    let res = sqlx::query("insert into files (filename, path, size, user_id) values ($1, $2, $3, $4) returning id")
+        .bind(form.json.filename.clone())
+        .bind(&path)
+        .bind(form.file.size as i64)
+        .bind(
+            decoded.claims.sub
+                .parse::<i32>()
+                .map_err(|_| AppError::InternalServerError { msg: "File insert query failed".to_string() })?
+        )
+        .fetch_one(&data.db)
+        .await;
+
+    match res {
+        Ok(row) => {
+            Ok(
+                HttpResponse::Ok()
+                    .body(format!(
+                        "File written to {} with id: {}",
+                        path, row.get::<i32, _>("id")
+                    ))
+            )
+        }
+        Err(_) => Err(AppError::InternalServerError { msg: "File upload query failed".to_string() })?
     }
 }
 

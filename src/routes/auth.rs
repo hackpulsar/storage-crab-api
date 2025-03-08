@@ -5,7 +5,7 @@ use sqlx::Row;
 use crate::AppState;
 use crate::models::jwt::{JwtTokenPair, TokenType};
 use crate::models::user::{RegisterUser, RegisterUserResponse, UserLoginCredentials};
-use crate::services::auth::{get_jwt_from, validate_jwt};
+use crate::services::auth::{get_and_validate_jwt, validate_jwt};
 use crate::utils::errors::AppError;
 
 #[post("/api/users/greet/")]
@@ -13,25 +13,24 @@ pub async fn greet(
     req: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
-    let token = get_jwt_from(&req)?;
-    match validate_jwt(token, data.secret.clone().as_str()) {
-        Some(decoded_data) => {
-            // Look up username in a database
-            let query = "select username from users where email = $1";
-            let res = sqlx::query(query)
-                .bind(decoded_data.claims.sub)
-                .fetch_one(&data.db)
-                .await;
+    let decoded = get_and_validate_jwt(&req, data.secret.clone().as_str())?;
 
-            match res {
-                Ok(row) => Ok(
-                    HttpResponse::Ok()
-                        .body(format!("Welcome back, {}", row.get::<String, _>("username")))
-                ),
-                Err(_) => Err(AppError::InternalServerError { msg: "Query failed".to_string() }),
-            }
-        },
-        None => Err(AppError::Unauthorized)
+    // Look up username in a database
+    let res = sqlx::query("select username from users where id = $1")
+        .bind(
+            decoded.claims.sub
+                .parse::<i32>()
+                .map_err(|_| AppError::InternalServerError { msg: "Failed to parse sub to id".to_string() })?
+        )
+        .fetch_one(&data.db)
+        .await;
+
+    match res {
+        Ok(row) => Ok(
+            HttpResponse::Ok()
+                .body(format!("Welcome back, {}", row.get::<String, _>("username")))
+        ),
+        Err(_) => Err(AppError::InternalServerError { msg: "Query failed".to_string() }),
     }
 }
 
@@ -45,8 +44,7 @@ pub async fn create_user(
     let user = user.into_inner();
 
     // Perform a query
-    let query = "insert into users(email, username, password) values ($1, $2, $3) returning id";
-    let res = sqlx::query(query)
+    let res = sqlx::query("insert into users(email, username, password) values ($1, $2, $3) returning id")
         .bind(user.email.clone())
         .bind(user.username.clone())
         .bind(user.password_hash.clone())
@@ -71,8 +69,7 @@ async fn login(
     data: web::Data<AppState>
 ) -> Result<HttpResponse, AppError> {
     // Look up user with given email
-    let query = "select password from users where email = $1";
-    let res = sqlx::query(query)
+    let res = sqlx::query("select password, id from users where email = $1")
         .bind(user.email.clone())
         .fetch_optional(&data.db)
         .await;
@@ -82,9 +79,9 @@ async fn login(
     match row {
         Some(record) => {
             if user.verify_password(&record.get::<String, _>("password")) {
-                let user_email: String = user.email.clone();
+                let user_id: i32 = record.get("id");
                 Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
-                    user_email,
+                    user_id.to_string(),
                     data.secret.clone()
                 )))
             } else {
@@ -107,35 +104,33 @@ async fn refresh_token(
     req: web::Json<RefreshRequest>,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
-    match validate_jwt(req.refresh_token.clone().as_str(), data.secret.clone().as_str()) {
-        Some(decoded_data) => {
-            if decoded_data.claims.token_type != TokenType::Refresh {
-                return Err(AppError::BadRequest { msg: "Wrong token type".to_string() });
-            }
+    let decoded = validate_jwt(req.refresh_token.clone().as_str(), data.secret.clone().as_str())
+        .ok_or(AppError::BadRequest { msg: "Invalid or expired refresh token".to_string() })?;
 
-            // Check if token is blacklisted
-            let mut conn = data.redis_pool.get().await
-                .map_err(|_| AppError::InternalServerError {msg: "Connection to Redis failed".to_string() })?;
-            let is_blacklisted: Option<String> = conn.get(decoded_data.claims.jti.clone()).await.ok();
-            match is_blacklisted {
-                Some(_) => Err(AppError::BadRequest { msg: "Token is blacklisted".to_string() }),
-                None => {
-                    // Blacklist refresh token used with expiration date.
-                    // Redis will delete this entry as soon as the token gets expired.
-                    let _: () = conn.set_ex(
-                        decoded_data.claims.jti.clone(),
-                        req.refresh_token.clone(),
-                        (decoded_data.claims.exp - (chrono::Utc::now().timestamp() as usize)) as u64
-                    ).await.unwrap();
+    if decoded.claims.token_type != TokenType::Refresh {
+        return Err(AppError::BadRequest { msg: "Wrong token type".to_string() });
+    }
 
-                    // Refresh token pair
-                    Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
-                        decoded_data.claims.sub,
-                        data.secret.clone()
-                    )))
-                }
-            }
-        },
-        None => Err(AppError::BadRequest { msg: "Invalid or expired refresh token".to_string() })
+    // Check if token is blacklisted
+    let mut conn = data.redis_pool.get().await
+        .map_err(|_| AppError::InternalServerError {msg: "Connection to Redis failed".to_string() })?;
+    let is_blacklisted: Option<String> = conn.get(decoded.claims.jti.clone()).await.ok();
+    match is_blacklisted {
+        Some(_) => Err(AppError::BadRequest { msg: "Token is blacklisted".to_string() }),
+        None => {
+            // Blacklist refresh token used with expiration date.
+            // Redis will delete this entry as soon as the token gets expired.
+            let _: () = conn.set_ex(
+                decoded.claims.jti.clone(),
+                req.refresh_token.clone(),
+                (decoded.claims.exp - (chrono::Utc::now().timestamp() as usize)) as u64
+            ).await.unwrap();
+
+            // Refresh token pair
+            Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
+                decoded.claims.sub,
+                data.secret.clone()
+            )))
+        }
     }
 }
