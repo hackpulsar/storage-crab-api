@@ -14,5 +14,6 @@ redis = { version ="0.29.1", features = ["tokio-comp"] }
 deadpool-redis = "0.20.0"
 dotenv = "0.15.0"
 derive_more = {  version = "2.0.1", features = ["display"] }
-argon2 = "0.5"
+sha2 = "0.10"
+hex = "0.4"
 uuid = { version = "1.15.1", features = ["v4"] }

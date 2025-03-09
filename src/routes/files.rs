@@ -1,13 +1,8 @@
 use actix_multipart::form::{MultipartForm};
 use actix_web::{post, web, HttpRequest, HttpResponse};
 use std::fs;
-use argon2::{
-    password_hash::{
-        rand_core::OsRng,
-        PasswordHasher, SaltString,
-    },
-    Argon2,
-};
+use std::path::Path;
+use sha2::{Digest, Sha256};
 use sqlx::{Row};
 
 use crate::AppState;
@@ -51,7 +46,7 @@ async fn get_files(
 #[post("/api/files/upload/")]
 async fn upload_file(
     req: HttpRequest,
-    MultipartForm(form): MultipartForm<UploadForm>,
+    MultipartForm(form): MultipartForm<FileUploadForm>,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
     let decoded = get_and_validate_jwt(&req, data.secret.clone().as_str())?;
@@ -68,23 +63,26 @@ async fn upload_file(
 
     let row = res
         .map_err(|_| AppError::InternalServerError { msg: "Username retrieve query failed".to_string() })?;
-
     let username: String = row.get("username");
-    // Hash username
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let username_hash = argon2.hash_password(username.as_bytes(), &salt)
-        .map_err(|_| AppError::InternalServerError { msg: "Username hash failed".to_string() })?
-        .to_string();
+
+    // Hash username with server secret
+    let mut hasher = Sha256::new();
+    hasher.update(username.as_bytes());
+    let username_hash = hex::encode(hasher.finalize());
 
     // Path to files storage
     let storage_path = std::env::var("FILES_STORAGE_PATH").unwrap();
+    let path = format!("{}/{}/{}", storage_path, username_hash, form.json.filename.clone());
+
+    // Check if file already exists
+    if Path::new(path.as_str()).exists() {
+        return Err(AppError::BadRequest { msg: "File with this name already exists".to_string() });
+    }
 
     // Create dirs for file of don't exist
     fs::create_dir_all(format!("{}/{}", storage_path, username_hash))
         .map_err(|_| AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() })?;
     // Save file on disk
-    let path = format!("{}/{}/{}", storage_path, username_hash, form.json.filename.clone());
     form.file.file.persist(&path)
         .map_err(|_| AppError::InternalServerError { msg: "Couldn't write file".to_string() })?;
 

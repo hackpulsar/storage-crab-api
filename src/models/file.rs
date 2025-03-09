@@ -6,16 +6,16 @@ use sqlx::postgres::PgRow;
 
 // Form of metadata for file upload
 #[derive(Debug, Deserialize)]
-pub struct Metadata {
+pub struct FileMetadata {
     pub filename: String,
 }
 
 // Upload form of a file
 #[derive(Debug, MultipartForm)]
-pub struct UploadForm {
+pub struct FileUploadForm {
     #[multipart(limit = "100MB")]
     pub file: TempFile,
-    pub json: Json<Metadata>,
+    pub json: Json<FileMetadata>,
 }
 
 // A file in database
@@ -29,7 +29,7 @@ pub struct File {
     pub user_id: i32
 }
 
-impl File {
+impl File {    // Extracts file from a record in db
     pub fn from_row(row: &PgRow) -> Result<Self, Error> {
         Ok(File{
             id: row.get("id"),

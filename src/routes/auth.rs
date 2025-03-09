@@ -40,6 +40,17 @@ pub async fn create_user(
     user: web::Json<RegisterUser>,
     data: web::Data<AppState>
 ) -> Result<HttpResponse, AppError> {
+    // Check if user with given email already exists
+    let res = sqlx::query("select 1 from users where email = $1")
+        .bind(user.email.clone())
+        .fetch_optional(&data.db)
+        .await
+        .map_err(|_| AppError::InternalServerError { msg: "Failed to fetch user".to_string() })?;
+
+    if let Some(_) = res {
+        return Err(AppError::BadRequest { msg: "User with this email already exists".to_string() });
+    }
+
     // User JSON to User struct
     let user = user.into_inner();
 
