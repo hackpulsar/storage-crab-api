@@ -2209,6 +2209,8 @@ dependencies = [
  "serde",
  "sha2",
  "sqlx",
+ "tokio",
+ "tokio-util",
  "uuid",
 ]
 

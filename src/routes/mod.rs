@@ -14,4 +14,6 @@ pub fn init_routes(config: &mut web::ServiceConfig) {
     // Files endpoints
     config.service(files::upload_file);
     config.service(files::get_files);
+    config.service(files::download_file);
+    config.service(files::delete_file);
 }

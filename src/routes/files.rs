@@ -1,9 +1,10 @@
 use actix_multipart::form::{MultipartForm};
-use actix_web::{post, web, HttpRequest, HttpResponse};
-use std::fs;
+use actix_web::{get, post, web, HttpRequest, HttpResponse};
 use std::path::Path;
 use sha2::{Digest, Sha256};
 use sqlx::{Row};
+use tokio::fs::{self};
+use tokio_util::io::ReaderStream;
 
 use crate::AppState;
 use crate::models::file::*;
@@ -11,7 +12,7 @@ use crate::services::auth::{get_and_validate_jwt};
 use crate::utils::errors::AppError;
 
 // Searches for all the files associated with given user
-#[post("/api/files/")]
+#[get("/api/files/")]
 async fn get_files(
     req: HttpRequest,
     data: web::Data<AppState>,
@@ -80,7 +81,7 @@ async fn upload_file(
     }
 
     // Create dirs for file of don't exist
-    fs::create_dir_all(format!("{}/{}", storage_path, username_hash))
+    fs::create_dir_all(format!("{}/{}", storage_path, username_hash)).await
         .map_err(|_| AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() })?;
     // Save file on disk
     form.file.file.persist(&path)
@@ -103,10 +104,10 @@ async fn upload_file(
         Ok(row) => {
             Ok(
                 HttpResponse::Ok()
-                    .body(format!(
-                        "File written to {} with id: {}",
-                        path, row.get::<i32, _>("id")
-                    ))
+                    .json(FileUploadResponse {
+                        file_id: row.get::<i32, _>("id"),
+                        path,
+                    })
             )
         }
         Err(_) => Err(AppError::InternalServerError { msg: "File upload query failed".to_string() })?
@@ -114,9 +115,64 @@ async fn upload_file(
 }
 
 // Downloads the file from authorized user storage
-/*#[post("/api/files/download")]
+#[post("/api/files/download/{file_id}/")]
 async fn download_file(
+    file_identifier: web::Path<FileIdentifier>,
+    req: HttpRequest,
     data: web::Data<AppState>,
-) -> impl Responder {
+) -> Result<HttpResponse, AppError> {
+    // Token validation
+    let decoded = get_and_validate_jwt(&req, &data.secret)?;
 
-}*/
+    // Check if the file exists in a db
+    let record = File::exists_in_and_belongs_to(
+        file_identifier.into_inner().file_id,
+        &data.db,
+        decoded.claims.sub.parse::<i32>()
+            .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?
+    ).await?;
+
+    let file = fs::File::open(record.get::<String, _>("path")).await
+        .map_err(|_| AppError::InternalServerError { msg: "Failed to open file".to_string() })?;
+    Ok(
+        HttpResponse::Ok()
+            .content_type("application/octet-stream")
+            .streaming(ReaderStream::new(file))
+    )
+}
+
+// Deletes the file completely
+#[post("/api/files/delete/{file_id}/")]
+async fn delete_file(
+    file_identifier: web::Path<FileIdentifier>,
+    req: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse, AppError> {
+    // Token validation
+    let decoded = get_and_validate_jwt(&req, &data.secret)?;
+    let file_id = file_identifier.into_inner().file_id;
+
+    // Check if the file exists in a db
+    let record = File::exists_in_and_belongs_to(
+        file_id,
+        &data.db,
+        decoded.claims.sub.parse::<i32>()
+            .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?
+    ).await?;
+
+    // Delete the file from storage
+    let path: String = record.get("path");
+    tokio::fs::remove_file(&path).await
+        .map_err(|_| AppError::InternalServerError { msg: "Failed to delete file".to_string() })?;
+
+    // Remove the record in db
+    let _ = sqlx::query("delete from files where id = $1")
+        .bind(file_id)
+        .execute(&data.db)
+        .await
+        .map_err(|_| AppError::InternalServerError { msg: "Failed to delete file".to_string() })?;
+
+    Ok(HttpResponse::Ok()
+        .body(format!("File {} deleted successfully.", path))
+    )
+}
