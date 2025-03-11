@@ -1,6 +1,5 @@
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
@@ -29,18 +28,18 @@ impl JwtTokenPair {
     // Generates a new token pair with the following lifetime
     // Access: 10 minutes
     // Refresh: 30 minutes
-    pub fn generate_for(user_email: String, secret: String) -> Self {
+    pub fn generate_for(user_id: String, secret: String) -> Self {
         let access_exp = chrono::Utc::now() + chrono::Duration::minutes(10);
         let refresh_exp = chrono::Utc::now() + chrono::Duration::minutes(30);
 
         let access_claims = Claims {
-            sub: user_email.clone(),
+            sub: user_id.clone(),
             exp: access_exp.timestamp() as usize,
             token_type: TokenType::Access,
             jti: Uuid::new_v4().to_string(),
         };
         let refresh_claims = Claims {
-            sub: user_email.clone(),
+            sub: user_id.clone(),
             exp: refresh_exp.timestamp() as usize,
             token_type: TokenType::Refresh,
             jti: Uuid::new_v4().to_string(),
@@ -60,19 +59,4 @@ impl JwtTokenPair {
             ).unwrap()
         }
     }
-}
-
-// Generates shared secret using openssl
-pub fn generate_shared_secret() -> String{
-    String::from_utf8(Command::new("openssl")
-        .arg("rand")
-        .arg("-base64")
-        .arg("32")
-        .output()
-        .expect("Failed to generate shared secret. Make sure openssl is installed.")
-        .stdout
-    )
-    .unwrap()
-    .trim()
-    .to_string()
 }

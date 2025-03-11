@@ -1,0 +1,74 @@
+use actix_multipart::form::{json::Json, tempfile::TempFile, MultipartForm};
+use chrono::{NaiveDateTime};
+use serde::{Deserialize, Serialize};
+use sqlx::{Error, Pool, Postgres, Row};
+use sqlx::postgres::PgRow;
+use crate::utils::errors::AppError;
+
+// Form of metadata for file upload
+#[derive(Debug, Deserialize)]
+pub struct FileMetadata {
+    pub filename: String,
+}
+
+// Upload form of a file
+#[derive(Debug, MultipartForm)]
+pub struct FileUploadForm {
+    #[multipart(limit = "100MB")]
+    pub file: TempFile,
+    pub json: Json<FileMetadata>,
+}
+
+// A file in database
+#[derive(Serialize)]
+pub struct File {
+    pub id: i32,
+    pub filename: String,
+    pub path: String,
+    pub size: i64,
+    pub uploaded_at: NaiveDateTime,
+    pub user_id: i32
+}
+
+#[derive(Deserialize)]
+pub struct FileIdentifier {
+    pub file_id: i32
+}
+
+#[derive(Serialize)]
+pub struct FileUploadResponse {
+    pub file_id: i32,
+    pub path: String
+}
+
+impl File {    // Extracts file from a record in db
+    pub fn from_row(row: &PgRow) -> Result<Self, Error> {
+        Ok(File{
+            id: row.get("id"),
+            filename: row.get("filename"),
+            path: row.get("path"),
+            size: row.get("size"),
+            uploaded_at: row.get("uploaded_at"),
+            user_id: row.get("user_id")
+        })
+    }
+
+    pub async fn exists_in_and_belongs_to(
+        id: i32,
+        db: &Pool<Postgres>,
+        user_id: i32
+    ) -> Result<PgRow, AppError> {
+        // Check if the file exists in a db
+        let res = sqlx::query("select path from files where id = $1 and user_id = $2")
+            .bind(id)
+            .bind(user_id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| AppError::InternalServerError { msg: format!("Failed to fetch file: {}", e.to_string()) })?;
+
+        match res {
+            Some(record) => Ok(record),
+            None => Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
+        }
+    }
+}
