@@ -1,4 +1,4 @@
-FROM rust:1.81 as builder
+FROM rust:1.81 AS builder
 
 WORKDIR /app
 
@@ -23,4 +23,5 @@ COPY --from=builder /app/target/release/storage-crab /app/storage-crab-api
 
 EXPOSE 8080
 
+RUN chmod +x /app/storage-crab-api
 CMD ["/app/storage-crab-api"]
