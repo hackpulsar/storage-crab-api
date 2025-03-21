@@ -170,9 +170,8 @@ async fn delete_file(
         .bind(file_id)
         .execute(&data.db)
         .await
-        .map_err(|_| AppError::InternalServerError { msg: "Failed to delete file".to_string() })?;
+        .map_err(|_| AppError::InternalServerError { msg: "File delete query failed".to_string() })?;
 
-    Ok(HttpResponse::Ok()
-        .body(format!("File {} deleted successfully.", path))
-    )
+    // An empty OK response
+    Ok(HttpResponse::NoContent().finish())
 }

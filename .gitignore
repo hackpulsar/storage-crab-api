@@ -4,3 +4,5 @@ files_storage
 
 .DS_Store
 .env
+
+*.pem
