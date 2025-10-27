@@ -4,7 +4,7 @@ use serde::Deserialize;
 use sqlx::Row;
 use crate::AppState;
 use crate::models::jwt::{JwtTokenPair, TokenType};
-use crate::models::user::{RegisterUser, RegisterUserResponse, UserLoginCredentials};
+use crate::models::user::{User, RegisterUserResponse, UserLoginCredentials};
 use crate::services::auth::{get_and_validate_jwt, validate_jwt};
 use crate::utils::errors::AppError;
 
@@ -37,7 +37,7 @@ pub async fn greet(
 // Creates a new user in a database
 #[post("/api/users/")]
 pub async fn create_user(
-    user: web::Json<RegisterUser>,
+    user: web::Json<User>,
     data: web::Data<AppState>
 ) -> Result<HttpResponse, AppError> {
     // Check if user with given email already exists

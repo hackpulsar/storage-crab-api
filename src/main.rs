@@ -1,13 +1,13 @@
+mod models;
+mod routes;
 mod services;
 mod utils;
-mod routes;
-mod models;
 
+use crate::routes::init_routes;
+use crate::utils::generate_shared_secret;
 use actix_web::{web, App, HttpServer};
 use deadpool_redis::{Config, Runtime};
 use sqlx::{Pool, Postgres};
-use crate::routes::init_routes;
-use crate::utils::generate_shared_secret;
 
 // Holds app state
 pub struct AppState {
@@ -38,7 +38,7 @@ async fn main() -> std::io::Result<()> {
     println!("Running database migrations...");
     match sqlx::migrate!().run(&pool).await {
         Ok(_) => (),
-        Err(_) => panic!("Failed to run database migrate.")
+        Err(_) => panic!("Failed to run database migrate."),
     }
     println!("Migrations successful.");
 
@@ -65,7 +65,7 @@ async fn main() -> std::io::Result<()> {
 async fn create_db_pool(db_url: String) -> Pool<Postgres> {
     match sqlx::postgres::PgPool::connect(db_url.as_str()).await {
         Ok(pool) => pool,
-        Err(e) => panic!("DB connection failed: {}", e)
+        Err(e) => panic!("DB connection failed: {}", e),
     }
 }
 

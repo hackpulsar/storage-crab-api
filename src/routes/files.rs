@@ -115,7 +115,7 @@ async fn upload_file(
 }
 
 // Downloads the file from authorized user storage
-#[post("/api/files/download/{file_id}/")]
+#[get("/api/files/download/{file_id}/")]
 async fn download_file(
     file_identifier: web::Path<FileIdentifier>,
     req: HttpRequest,

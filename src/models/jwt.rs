@@ -4,10 +4,10 @@ use uuid::Uuid;
 
 #[derive(Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,            // subject (whom token refers to)
-    pub exp: usize,             // token expiration date
-    pub token_type: TokenType,  // token type (access or refresh)
-    pub jti: String,            // token id
+    pub sub: String,           // subject (whom token refers to)
+    pub exp: usize,            // token expiration date
+    pub token_type: TokenType, // token type (access or refresh)
+    pub jti: String,           // token id
 }
 
 // Represents a token pair
@@ -50,13 +50,15 @@ impl JwtTokenPair {
             access_token: encode(
                 &Header::default(),
                 &access_claims,
-                &EncodingKey::from_secret(secret.as_bytes())
-            ).unwrap(),
+                &EncodingKey::from_secret(secret.as_bytes()),
+            )
+            .unwrap(),
             refresh_token: encode(
                 &Header::default(),
                 &refresh_claims,
-                &EncodingKey::from_secret(secret.as_bytes())
-            ).unwrap()
+                &EncodingKey::from_secret(secret.as_bytes()),
+            )
+            .unwrap(),
         }
     }
 }

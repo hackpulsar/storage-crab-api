@@ -1,18 +1,19 @@
 use serde::{Deserialize, Serialize};
 
-// Struct for user registration
+// User record in a database
 #[derive(Serialize, Deserialize)]
-pub struct RegisterUser {
+pub struct User {
     pub email: String,
     pub username: String,
     pub password_hash: String,
 }
 
 // Response to a create user request
+// TODO: do we need the entire user with even password hash?
 #[derive(Serialize)]
 pub struct RegisterUserResponse {
     pub id: i32,
-    pub user: RegisterUser,
+    pub user: User,
 }
 
 // User credentials on login
@@ -27,4 +28,11 @@ impl UserLoginCredentials {
     pub fn verify_password(&self, password_hash: &str) -> bool {
         self.password_hash == password_hash
     }
+}
+
+// Response to the "me" endpoint
+#[derive(Serialize)]
+pub struct UserInfoReponse {
+    pub email: String,
+    pub username: String,
 }

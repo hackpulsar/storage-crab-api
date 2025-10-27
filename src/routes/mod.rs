@@ -2,6 +2,7 @@ use actix_web::web;
 
 pub mod auth;
 pub mod files;
+pub mod user;
 
 // Initializes routes for server config
 pub fn init_routes(config: &mut web::ServiceConfig) {
@@ -16,4 +17,7 @@ pub fn init_routes(config: &mut web::ServiceConfig) {
     config.service(files::get_files);
     config.service(files::download_file);
     config.service(files::delete_file);
+
+    // User endpoints
+    config.service(user::me);
 }

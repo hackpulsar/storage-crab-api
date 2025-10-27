@@ -1,8 +1,8 @@
-use actix_web::{HttpResponse, ResponseError};
 use actix_web::http::header::ContentType;
 use actix_web::http::StatusCode;
+use actix_web::{HttpResponse, ResponseError};
 use derive_more::Display;
-use serde::{Serialize};
+use serde::Serialize;
 
 // Errors tha occur during app runtime
 #[derive(Debug, Display)]
@@ -34,6 +34,8 @@ impl ResponseError for AppError {
     fn error_response(&self) -> HttpResponse {
         HttpResponse::build(self.status_code())
             .insert_header(ContentType::html())
-            .json(ErrorResponse { details: self.to_string() })
+            .json(ErrorResponse {
+                details: self.to_string(),
+            })
     }
 }
