@@ -10,14 +10,12 @@ pub struct Claims {
     pub jti: String,           // token id
 }
 
-// Represents a token pair
 #[derive(Serialize)]
 pub struct JwtTokenPair {
     access_token: String,
     refresh_token: String,
 }
 
-// Token types
 #[derive(Serialize, Deserialize, PartialEq)]
 pub enum TokenType {
     Access,

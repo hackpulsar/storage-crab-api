@@ -2,97 +2,81 @@ use actix_web::{post, web, HttpRequest, HttpResponse};
 use redis::AsyncCommands;
 use serde::Deserialize;
 use sqlx::Row;
+
 use crate::AppState;
 use crate::models::jwt::{JwtTokenPair, TokenType};
-use crate::models::user::{User, RegisterUserResponse, UserLoginCredentials};
+use crate::models::user::{DBUser, UserInfo, UserLoginCredentials};
 use crate::services::auth::{get_and_validate_jwt, validate_jwt};
 use crate::utils::errors::AppError;
 
 #[post("/api/users/greet/")]
-pub async fn greet(
-    req: HttpRequest,
-    data: web::Data<AppState>,
-) -> Result<HttpResponse, AppError> {
-    let decoded = get_and_validate_jwt(&req, data.secret.clone().as_str())?;
+pub async fn greet(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let user_id = token.claims.sub.parse::<i32>().map_err(|_| AppError::InternalServerError { 
+        msg: "Failed to parse sub to id".to_string() 
+    })?;
 
     // Look up username in a database
-    let res = sqlx::query("select username from users where id = $1")
-        .bind(
-            decoded.claims.sub
-                .parse::<i32>()
-                .map_err(|_| AppError::InternalServerError { msg: "Failed to parse sub to id".to_string() })?
-        )
-        .fetch_one(&data.db)
-        .await;
+    let record = sqlx::query("select username from users where id = $1")
+        .bind(user_id)
+        .fetch_one(&data.db_pool)
+        .await
+        // TODO: do not propagate SQL error
+        .map_err(|_| AppError::InternalServerError { msg: "Query failed".to_string() })?;
 
-    match res {
-        Ok(row) => Ok(
-            HttpResponse::Ok()
-                .body(format!("Welcome back, {}", row.get::<String, _>("username")))
-        ),
-        Err(_) => Err(AppError::InternalServerError { msg: "Query failed".to_string() }),
-    }
+    Ok(HttpResponse::Ok().body(format!("Welcome back, {}", record.get::<String, _>("username"))))
 }
 
-// Creates a new user in a database
 #[post("/api/users/")]
-pub async fn create_user(
-    user: web::Json<User>,
-    data: web::Data<AppState>
-) -> Result<HttpResponse, AppError> {
-    // Check if user with given email already exists
-    let res = sqlx::query("select 1 from users where email = $1")
+pub async fn create_user(user: web::Json<DBUser>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    // First, look for a record with given email in the DB
+    let record = sqlx::query("select 1 from users where email = $1")
         .bind(user.email.clone())
-        .fetch_optional(&data.db)
+        .fetch_optional(&data.db_pool)
         .await
         .map_err(|_| AppError::InternalServerError { msg: "Failed to fetch user".to_string() })?;
 
-    if let Some(_) = res {
+    if let Some(_) = record {
         return Err(AppError::BadRequest { msg: "User with this email already exists".to_string() });
     }
 
     // User JSON to User struct
-    let user = user.into_inner();
+    // TODO: do we need the entire user ESPECIALLY the password hash?
+    // NOT SAFE
+    let user: DBUser = user.into_inner();
 
     // Perform a query
-    let res = sqlx::query("insert into users(email, username, password) values ($1, $2, $3) returning id")
+    let record = sqlx::query("insert into users(email, username, password) values ($1, $2, $3) returning id")
         .bind(user.email.clone())
         .bind(user.username.clone())
         .bind(user.password_hash.clone())
-        .fetch_one(&data.db)
-        .await;
+        .fetch_one(&data.db_pool)
+        .await
+        // TODO: do not propagate SQL error
+        .map_err(|_| AppError::InternalServerError { msg: "Insert user query failed".to_string() })?;
 
-    // If success, send back a JSON with the created user credentials and an ID.
-    // Otherwise, send back an internal server error.
-    match res {
-        Ok(record) => Ok(HttpResponse::Ok().json(RegisterUserResponse {
-            id: record.get("id"),
-            user
-        })),
-        Err(_) => Err(AppError::InternalServerError { msg: "Insert user query failed".to_string() }),
-    }
+    Ok(HttpResponse::Ok().json(UserInfo {
+        id: record.get("id"),
+        email: record.get("email"),
+        username: record.get("username")
+    }))
 }
 
-// Token pair obtain endpoint
 #[post("api/token/get/")]
-async fn login(
-    user: web::Json<UserLoginCredentials>,
-    data: web::Data<AppState>
-) -> Result<HttpResponse, AppError> {
+async fn login(user: web::Json<UserLoginCredentials>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     // Look up user with given email
-    let res = sqlx::query("select password, id from users where email = $1")
+    let record = sqlx::query("select password, id from users where email = $1")
         .bind(user.email.clone())
-        .fetch_optional(&data.db)
-        .await;
+        .fetch_optional(&data.db_pool)
+        .await
+        .map_err(|_| AppError::InternalServerError { msg: "Login query failed".to_string() })?;
 
     // Send jwt token pair on successful login
-    let row = res.map_err(|_| AppError::InternalServerError { msg: "Login query failed".to_string() })?;
-    match row {
+    match record {
         Some(record) => {
             if user.verify_password(&record.get::<String, _>("password")) {
-                let user_id: i32 = record.get("id");
                 Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
-                    user_id.to_string(),
+                    record.get::<i32, _>("id").to_string(),
                     data.secret.clone()
                 )))
             } else {
@@ -109,37 +93,37 @@ struct RefreshRequest {
     refresh_token: String,
 }
 
-// Token refresh endpoint
 #[post("/api/token/refresh/")]
-async fn refresh_token(
-    req: web::Json<RefreshRequest>,
-    data: web::Data<AppState>,
-) -> Result<HttpResponse, AppError> {
-    let decoded = validate_jwt(req.refresh_token.clone().as_str(), data.secret.clone().as_str())
+async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    let token = validate_jwt(req.refresh_token.clone().as_str(), data.secret.clone().as_str())
         .ok_or(AppError::BadRequest { msg: "Invalid or expired refresh token".to_string() })?;
 
-    if decoded.claims.token_type != TokenType::Refresh {
+    if token.claims.token_type != TokenType::Refresh {
         return Err(AppError::BadRequest { msg: "Wrong token type".to_string() });
     }
 
     // Check if token is blacklisted
-    let mut conn = data.redis_pool.get().await
-        .map_err(|_| AppError::InternalServerError {msg: "Connection to Redis failed".to_string() })?;
-    let is_blacklisted: Option<String> = conn.get(decoded.claims.jti.clone()).await.ok();
-    match is_blacklisted {
+    let mut conn = data.redis_pool
+        .get().await
+        .map_err(|_| AppError::InternalServerError { msg: "Connection to Redis lost".to_string() })?;
+
+    // If token exists in Redis, it is blacklisted
+    match conn.get::<_, Option<String>>(token.claims.jti.clone()).await.ok() {
         Some(_) => Err(AppError::BadRequest { msg: "Token is blacklisted".to_string() }),
         None => {
-            // Blacklist refresh token used with expiration date.
+            // Blacklist token. 
             // Redis will delete this entry as soon as the token gets expired.
-            let _: () = conn.set_ex(
-                decoded.claims.jti.clone(),
+            conn.set_ex::<_, _, ()>(
+                token.claims.jti.clone(),
                 req.refresh_token.clone(),
-                (decoded.claims.exp - (chrono::Utc::now().timestamp() as usize)) as u64
-            ).await.unwrap();
+                // saturating_sub wraps to zero to prevent underflow
+                token.claims.exp.saturating_sub(chrono::Utc::now().timestamp() as usize) as u64
+            ).await
+            .map_err(|_| { AppError::InternalServerError { msg: "Failed to blacklist the token".to_string() } })?;
 
-            // Refresh token pair
+            // Send back refreshed token pair
             Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
-                decoded.claims.sub,
+                token.claims.sub,
                 data.secret.clone()
             )))
         }

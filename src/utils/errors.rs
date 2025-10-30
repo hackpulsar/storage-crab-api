@@ -7,7 +7,7 @@ use serde::Serialize;
 // Errors tha occur during app runtime
 #[derive(Debug, Display)]
 pub enum AppError {
-    #[display("Unauthorized access")]
+    #[display("Unauthorized")]
     Unauthorized,
 
     #[display("Bad request: {}", msg)]

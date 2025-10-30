@@ -1,22 +1,23 @@
 use serde::{Deserialize, Serialize};
 
-// User record in a database
+// User record in a database.
+// To be used only internally.
 #[derive(Serialize, Deserialize)]
-pub struct User {
+pub struct DBUser {
     pub email: String,
     pub username: String,
     pub password_hash: String,
 }
 
-// Response to a create user request
-// TODO: do we need the entire user with even password hash?
+// Essential user information.
+// To be used externally.
 #[derive(Serialize)]
-pub struct RegisterUserResponse {
+pub struct UserInfo {
     pub id: i32,
-    pub user: User,
+    pub email: String,
+    pub username: String,
 }
 
-// User credentials on login
 #[derive(Deserialize)]
 pub struct UserLoginCredentials {
     pub email: String,
@@ -28,11 +29,4 @@ impl UserLoginCredentials {
     pub fn verify_password(&self, password_hash: &str) -> bool {
         self.password_hash == password_hash
     }
-}
-
-// Response to the "me" endpoint
-#[derive(Serialize)]
-pub struct UserInfoReponse {
-    pub email: String,
-    pub username: String,
 }

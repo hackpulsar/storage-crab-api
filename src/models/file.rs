@@ -5,13 +5,11 @@ use sqlx::{Error, Pool, Postgres, Row};
 use sqlx::postgres::PgRow;
 use crate::utils::errors::AppError;
 
-// Form of metadata for file upload
 #[derive(Debug, Deserialize)]
 pub struct FileMetadata {
     pub filename: String,
 }
 
-// Upload form of a file
 #[derive(Debug, MultipartForm)]
 pub struct FileUploadForm {
     #[multipart(limit = "100MB")]
@@ -21,7 +19,7 @@ pub struct FileUploadForm {
 
 // A file in database
 #[derive(Serialize)]
-pub struct File {
+pub struct DBFile {
     pub id: i32,
     pub filename: String,
     pub path: String,
@@ -30,20 +28,16 @@ pub struct File {
     pub user_id: i32
 }
 
-#[derive(Deserialize)]
-pub struct FileIdentifier {
-    pub file_id: i32
-}
-
 #[derive(Serialize)]
 pub struct FileUploadResponse {
     pub file_id: i32,
     pub path: String
 }
 
-impl File {    // Extracts file from a record in db
+impl DBFile {
+    // Extracts file from a record in db
     pub fn from_row(row: &PgRow) -> Result<Self, Error> {
-        Ok(File{
+        Ok(DBFile {
             id: row.get("id"),
             filename: row.get("filename"),
             path: row.get("path"),
