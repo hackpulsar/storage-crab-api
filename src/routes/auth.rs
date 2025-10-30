@@ -46,7 +46,7 @@ pub async fn create_user(user: web::Json<DBUser>, data: web::Data<AppState>) -> 
     let user: DBUser = user.into_inner();
 
     // Perform a query
-    let record = sqlx::query("insert into users(email, username, password) values ($1, $2, $3) returning id")
+    let record = sqlx::query("insert into users(email, username, password) values ($1, $2, $3) returning id, email, username")
         .bind(user.email.clone())
         .bind(user.username.clone())
         .bind(user.password_hash.clone())
