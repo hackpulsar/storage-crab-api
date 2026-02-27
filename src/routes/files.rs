@@ -1,10 +1,13 @@
 use actix_multipart::form::{MultipartForm};
 use actix_web::{get, post, web, HttpRequest, HttpResponse};
+use redis::AsyncCommands;
 use std::path::Path;
 use sha2::{Digest, Sha256};
 use sqlx::{Row};
 use tokio::fs::{self};
 use tokio_util::io::ReaderStream;
+
+use rand::{distributions::Alphanumeric, Rng};
 
 use crate::AppState;
 use crate::models::file::*;
@@ -101,11 +104,37 @@ async fn download_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Dat
         .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?;
 
     // Check if the file exists in a db
-    let record = DBFile::exists_in_and_belongs_to(
+    let record = DBFile::exists_and_belongs_to(
         file_id.into_inner(),
         &data.db_pool,
         user_id
     ).await?;
+
+    let file = fs::File::open(record.get::<String, _>("path"))
+        .await
+        .map_err(|_| AppError::InternalServerError { msg: "Failed to open file".to_string() })?;
+
+    Ok(HttpResponse::Ok()
+        .content_type("application/octet-stream")
+        .streaming(ReaderStream::new(file))
+    )
+}
+
+#[get("/api/files/download/shared/{share_code}/")]
+async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    get_and_validate_jwt(&req, &data.secret)?;
+
+    let mut conn = data.redis_pool
+            .get().await
+            .map_err(|_| AppError::InternalServerError { msg: "Connection to Redis lost".to_string() })?;
+
+    // Validate the share code
+    let file_id = conn.get::<_, Option<i32>>(share_code.clone()).await
+        .map_err(|_| AppError::InternalServerError { msg: "Failed to fetch share code from Redis".to_string() })?
+        .ok_or_else(|| AppError::BadRequest { msg: "Invalid share code".to_string() })?;
+
+    // Download the file
+    let record = DBFile::exists(file_id, &data.db_pool).await?;
 
     let file = fs::File::open(record.get::<String, _>("path"))
         .await
@@ -127,7 +156,7 @@ async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: we
     let file_id = file_identifier.into_inner();
 
     // Check if the file exists in a db
-    let record = DBFile::exists_in_and_belongs_to(
+    let record = DBFile::exists_and_belongs_to(
         file_id,
         &data.db_pool,
         user_id
@@ -148,4 +177,57 @@ async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: we
 
     // An empty OK response
     Ok(HttpResponse::NoContent().finish())
+}
+
+#[post("/api/files/share/{file_id}/")]
+async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let user_id: i32 = token.claims.sub
+        .parse::<i32>()
+        .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?;
+    let file_id = file_id.into_inner();
+
+    // Verify if file exists
+    DBFile::exists_and_belongs_to(
+        file_id,
+        &data.db_pool,
+        user_id
+    ).await?;
+
+    let mut share_code: String;
+
+    // Generate a unique token of length 8
+    // Map token to a file in file_shares table
+    loop {
+        share_code = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(8)
+            .map(char::from)
+            .collect();
+
+        let mut conn = data.redis_pool
+            .get().await
+            .map_err(|_| AppError::InternalServerError { msg: "Connection to Redis lost".to_string() })?;
+
+        let key: &str = &share_code;
+        let value: Option<String> = conn.get(key).await.ok();
+
+        match value {
+            Some(_) => { /* Key already exists, continue */ },
+            None => {
+                // Code is unique, add it to redis
+                conn.set_ex::<_, _, ()>(
+                    key,
+                    file_id,
+                    5 * 60 // 5 minutes
+                ).await
+                .map_err(|_| { AppError::InternalServerError { msg: "Failed to save share code".to_string() } })?;
+                
+                break;
+            }
+        }
+    }
+
+    // Pass the generated code to user
+    Ok(HttpResponse::Ok().json(FileShareResponse{ code: share_code }))
 }

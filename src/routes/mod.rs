@@ -17,6 +17,8 @@ pub fn init_routes(config: &mut web::ServiceConfig) {
     config.service(files::get_files);
     config.service(files::download_file);
     config.service(files::delete_file);
+    config.service(files::share_file);
+    config.service(files::download_shared_file);
 
     // User endpoints
     config.service(user::me);

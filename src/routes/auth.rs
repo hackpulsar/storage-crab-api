@@ -73,7 +73,7 @@ async fn login(user: web::Json<UserLoginCredentials>, data: web::Data<AppState>)
 
     // Send jwt token pair on successful login
     match record {
-        Some(record) => {
+        Some(record) => {   
             if user.verify_password(&record.get::<String, _>("password")) {
                 Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
                     record.get::<i32, _>("id").to_string(),
