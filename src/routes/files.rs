@@ -116,6 +116,14 @@ async fn download_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Dat
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
+        .insert_header((
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", record.get::<String, _>("filename"))
+        ))
+        .insert_header((
+            "Content-Length",
+            record.get::<i64, _>("size")
+        ))
         .streaming(ReaderStream::new(file))
     )
 }
@@ -142,6 +150,14 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
+        .insert_header((
+            "Content-Disposition",
+            format!("attachment; filename=\"{}\"", record.get::<String, _>("filename"))
+        ))
+        .insert_header((
+            "Content-Length",
+            record.get::<i64, _>("size")
+        ))
         .streaming(ReaderStream::new(file))
     )
 }

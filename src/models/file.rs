@@ -57,7 +57,7 @@ impl DBFile {
         db: &Pool<Postgres>,
         user_id: i32
     ) -> Result<PgRow, AppError> {
-        let res = sqlx::query("select path from files where id = $1 and user_id = $2")
+        let res = sqlx::query("select path, filename, size from files where id = $1 and user_id = $2")
             .bind(id)
             .bind(user_id)
             .fetch_optional(db)
@@ -74,7 +74,7 @@ impl DBFile {
         id: i32,
         db: &Pool<Postgres>
     ) -> Result<PgRow, AppError> {
-        let res = sqlx::query("select path from files where id = $1")
+        let res = sqlx::query("select path, filename, size from files where id = $1")
             .bind(id)
             .fetch_optional(db)
             .await
