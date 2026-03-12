@@ -34,6 +34,11 @@ pub struct FileUploadResponse {
     pub path: String
 }
 
+#[derive(Serialize)]
+pub struct FileShareResponse {
+    pub code: String
+}
+
 impl DBFile {
     // Extracts file from a record in db
     pub fn from_row(row: &PgRow) -> Result<Self, Error> {
@@ -47,13 +52,12 @@ impl DBFile {
         })
     }
 
-    pub async fn exists_in_and_belongs_to(
+    pub async fn exists_and_belongs_to(
         id: i32,
         db: &Pool<Postgres>,
         user_id: i32
     ) -> Result<PgRow, AppError> {
-        // Check if the file exists in a db
-        let res = sqlx::query("select path from files where id = $1 and user_id = $2")
+        let res = sqlx::query("select path, filename, size from files where id = $1 and user_id = $2")
             .bind(id)
             .bind(user_id)
             .fetch_optional(db)
@@ -65,4 +69,21 @@ impl DBFile {
             None => Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
         }
     }
+
+    pub async fn exists(
+        id: i32,
+        db: &Pool<Postgres>
+    ) -> Result<PgRow, AppError> {
+        let res = sqlx::query("select path, filename, size from files where id = $1")
+            .bind(id)
+            .fetch_optional(db)
+            .await
+            .map_err(|e| AppError::InternalServerError { msg: format!("Failed to fetch file: {}", e.to_string()) })?;
+
+        match res {
+            Some(record) => Ok(record),
+            None => Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
+        }
+    }
+
 }
