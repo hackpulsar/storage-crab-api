@@ -10,7 +10,6 @@ services:
     restart: unless-stopped
     volumes:
       - ./files_storage:/app/files_storage
-      - ./files_storage/tmp:/app/files_storage/tmp
 
   db:
     image: postgres:16
