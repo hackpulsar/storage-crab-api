@@ -7,6 +7,7 @@ use core::panic;
 
 use crate::routes::init_routes;
 use crate::utils::generate_shared_secret;
+use actix_multipart::form::tempfile::TempFileConfig;
 use actix_web::{web, App, HttpServer};
 use deadpool_redis::{Config, Runtime};
 use sqlx::{Postgres};
@@ -55,6 +56,7 @@ async fn main() -> std::io::Result<()> {
                 db_pool: db_pool.clone(),
                 redis_pool: redis_pool.clone(),
             }))
+            .app_data(TempFileConfig::default().directory(std::env::var("FILES_STORAGE_PATH").unwrap()))
             .configure(init_routes)
     })
     .bind(("0.0.0.0", 8080))?
