@@ -137,16 +137,22 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
             .map_err(|_| AppError::InternalServerError { msg: "Connection to Redis lost".to_string() })?;
 
     // Validate the share code
-    let file_id = conn.get::<_, Option<i32>>(share_code.clone()).await
-        .map_err(|_| AppError::InternalServerError { msg: "Failed to fetch share code from Redis".to_string() })?
-        .ok_or_else(|| AppError::BadRequest { msg: "Invalid share code".to_string() })?;
+    let file_id = match conn.get::<_, Option<i32>>(share_code.clone()).await {
+        Ok(Some(id)) => id,
+        Ok(None) => return Err(AppError::BadRequest { msg: "Invalid share code".to_string() }),
+        Err(_) => return Err(AppError::InternalServerError { msg: "Failed to fetch share code from Redis".to_string() })
+    };
+
+    println!("File ID valid: {}", file_id);
 
     // Download the file
     let record = DBFile::exists(file_id, &data.db_pool).await?;
+    println!("Got record");
 
     let file = fs::File::open(record.get::<String, _>("path"))
         .await
         .map_err(|_| AppError::InternalServerError { msg: "Failed to open file".to_string() })?;
+    println!("Got file");
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
