@@ -1,4 +1,3 @@
-use actix_multipart::form::tempfile::TempFileConfig;
 use actix_multipart::form::{MultipartForm};
 use actix_web::{get, post, web, HttpRequest, HttpResponse};
 use redis::AsyncCommands;

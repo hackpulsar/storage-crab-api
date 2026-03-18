@@ -4,7 +4,7 @@ pub mod errors;
 pub mod logger;
 
 // Generates shared secret using OpenSSL
-pub fn generate_shared_secret() -> String{
+pub fn generate_shared_secret() -> String {
     String::from_utf8(Command::new("openssl")
         .arg("rand")
         .arg("-base64")
