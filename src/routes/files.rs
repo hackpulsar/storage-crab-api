@@ -16,7 +16,7 @@ use crate::utils::errors::AppError;
 
 // Searches for all the files associated with given user
 #[get("/api/files/")]
-async fn get_files( req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+async fn get_files(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let token = get_and_validate_jwt(&req, &data.secret)?;
     let user_id: i32 = token.claims.sub
         .parse::<i32>()
