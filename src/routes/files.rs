@@ -15,16 +15,20 @@ use crate::models::file::*;
 use crate::services::auth::{get_and_validate_jwt};
 use crate::utils::errors::AppError;
 
-// Searches for all the files associated with given user
-#[get("/api/files/")]
-async fn get_files(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let token = get_and_validate_jwt(&req, &data.secret)?;
-    let user_id: i32 = token.claims.sub
+fn parse_user_id(sub: String) -> Result<i32, AppError> {
+    sub
         .parse::<i32>()
         .map_err(|e| {
             warn!("Sub id parse failed with error: {:?}", e);
             AppError::InternalServerError { msg: "Sub id parse failed".to_string() }
-        })?;
+        })
+}
+
+// Searches for all the files associated with given user
+#[get("/api/files/")]
+async fn get_files(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let user_id = parse_user_id(token.claims.sub)?;
 
     let records = sqlx::query("select * from files where user_id = $1")
         .bind(user_id)
@@ -54,12 +58,7 @@ async fn upload_file(
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
     let token = get_and_validate_jwt(&req, data.secret.clone().as_str())?;
-    let user_id: i32 = token.claims.sub
-        .parse::<i32>()
-        .map_err(|e| {
-            warn!("Sub id parse failed with error: {:?}", e);
-            AppError::InternalServerError { msg: "Sub id parse failed".to_string() }
-        })?;
+    let user_id = parse_user_id(token.claims.sub)?;
 
     // Retrieve username
     let username: String = sqlx::query("select username from users where id = $1")
@@ -126,12 +125,7 @@ async fn upload_file(
 async fn download_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     // Token validation
     let token = get_and_validate_jwt(&req, &data.secret)?;
-    let user_id: i32 = token.claims.sub
-        .parse::<i32>()
-        .map_err(|e| {
-            warn!("Sub id parse failed with error: {:?}", e);
-            AppError::InternalServerError { msg: "Sub id parse failed".to_string() }
-        })?;
+    let user_id = parse_user_id(token.claims.sub)?;
 
     // Check if the file exists in a db
     let record = DBFile::exists_and_belongs_to(
@@ -222,12 +216,7 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
 #[post("/api/files/delete/{file_id}/")]
 async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let token = get_and_validate_jwt(&req, &data.secret)?;
-    let user_id: i32 = token.claims.sub
-        .parse::<i32>()
-        .map_err(|e| {
-            warn!("Sub id parse failed with error: {:?}", e);
-            AppError::InternalServerError { msg: "Sub id parse failed".to_string() }
-        })?;
+    let user_id = parse_user_id(token.claims.sub)?;
     let file_id = file_identifier.into_inner();
 
     // Check if the file exists in a db
@@ -262,12 +251,7 @@ async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: we
 #[post("/api/files/share/{file_id}/")]
 async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let token = get_and_validate_jwt(&req, &data.secret)?;
-    let user_id: i32 = token.claims.sub
-        .parse::<i32>()
-        .map_err(|e| {
-            warn!("Sub id parse failed with error: {:?}", e);
-            AppError::InternalServerError { msg: "Sub id parse failed".to_string() }
-        })?;
+    let user_id = parse_user_id(token.claims.sub)?;
     let file_id = file_id.into_inner();
 
     // Verify if file exists
