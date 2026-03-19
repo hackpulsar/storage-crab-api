@@ -3,6 +3,8 @@ use chrono::{NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use sqlx::{Error, Pool, Postgres, Row};
 use sqlx::postgres::PgRow;
+use log::{warn, debug};
+
 use crate::utils::errors::AppError;
 
 #[derive(Debug, Deserialize)]
@@ -62,11 +64,20 @@ impl DBFile {
             .bind(user_id)
             .fetch_optional(db)
             .await
-            .map_err(|e| AppError::InternalServerError { msg: format!("Failed to fetch file: {}", e.to_string()) })?;
+            .map_err(|e| {
+                warn!("Failed to fetch file with error {:?}", e);
+                AppError::InternalServerError { msg: format!("Failed to fetch file with error {:?}", e) }
+            })?;
 
         match res {
-            Some(record) => Ok(record),
-            None => Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
+            Some(record) => {
+                debug!("Found file with ID [{}]", id);
+                Ok(record)
+            }
+            None => {
+                debug!("File with ID [{}] foesn't exist", id);
+                return Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
+            }
         }
     }
 
@@ -78,11 +89,20 @@ impl DBFile {
             .bind(id)
             .fetch_optional(db)
             .await
-            .map_err(|e| AppError::InternalServerError { msg: format!("Failed to fetch file: {}", e.to_string()) })?;
+            .map_err(|e| {
+                warn!("Failed to fetch file with error {:?}", e);
+                AppError::InternalServerError { msg: format!("Failed to fetch file with error {:?}", e) }
+            })?;
 
         match res {
-            Some(record) => Ok(record),
-            None => Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
+            Some(record) => {
+                debug!("Found file with ID [{}]", id);
+                Ok(record)
+            }
+            None => {
+                debug!("File with ID [{}] foesn't exist", id);
+                return Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
+            }
         }
     }
 
