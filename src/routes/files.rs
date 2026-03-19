@@ -1,6 +1,6 @@
-use actix_multipart::form::tempfile::TempFileConfig;
 use actix_multipart::form::{MultipartForm};
 use actix_web::{get, post, web, HttpRequest, HttpResponse};
+use log::{warn, debug};
 use redis::AsyncCommands;
 use std::path::Path;
 use sha2::{Digest, Sha256};
@@ -15,25 +15,37 @@ use crate::models::file::*;
 use crate::services::auth::{get_and_validate_jwt};
 use crate::utils::errors::AppError;
 
+fn parse_user_id(sub: String) -> Result<i32, AppError> {
+    sub
+        .parse::<i32>()
+        .map_err(|e| {
+            warn!("Sub id parse failed with error: {:?}", e);
+            AppError::InternalServerError { msg: "Sub id parse failed".to_string() }
+        })
+}
+
 // Searches for all the files associated with given user
 #[get("/api/files/")]
-async fn get_files( req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+async fn get_files(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let token = get_and_validate_jwt(&req, &data.secret)?;
-    let user_id: i32 = token.claims.sub
-        .parse::<i32>()
-        .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?;
+    let user_id = parse_user_id(token.claims.sub)?;
 
     let records = sqlx::query("select * from files where user_id = $1")
         .bind(user_id)
         .fetch_all(&data.db_pool)
         .await
-        .map_err(|_| AppError::InternalServerError { msg: "Select files query failed".to_string() })?;
+        .map_err(|_| {
+            warn!("Select files query failed for user_id: {}", user_id);
+            AppError::InternalServerError { msg: "Select files query failed".to_string() }
+        })?;
 
     // Convert to a custom DBFile type
     let data: Vec<DBFile> = records
         .into_iter()
         .filter_map(|row| DBFile::from_row(&row).ok())
         .collect();
+
+    debug!("Files fetched {} files for user: {}", data.len(), user_id);
 
     Ok(HttpResponse::Ok().json(data))
 }
@@ -46,16 +58,17 @@ async fn upload_file(
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
     let token = get_and_validate_jwt(&req, data.secret.clone().as_str())?;
-    let user_id: i32 = token.claims.sub
-        .parse::<i32>()
-        .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?;
+    let user_id = parse_user_id(token.claims.sub)?;
 
     // Retrieve username
     let username: String = sqlx::query("select username from users where id = $1")
         .bind(user_id)
         .fetch_one(&data.db_pool)
         .await
-        .map_err(|_| AppError::InternalServerError { msg: "Username retrieve query failed".to_string() })?
+        .map_err(|e| {
+            warn!("Username retrieve query failed for user {} with error: {:?}", user_id, e);
+            AppError::InternalServerError { msg: "Username retrieve query failed".to_string() }
+        })?
         .get("username");
 
     // Hash username with server secret
@@ -69,15 +82,24 @@ async fn upload_file(
 
     // Check if file already exists
     if Path::new(path.as_str()).exists() {
+        debug!("File [{}] already exists", path);
         return Err(AppError::BadRequest { msg: "File with this name already exists".to_string() });
     }
 
+    let dir_path = format!("{}/{}", storage_path, username_hash);
+
     // Create dirs for file of don't exist
-    fs::create_dir_all(format!("{}/{}", storage_path, username_hash)).await
-        .map_err(|_| AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() })?;
+    fs::create_dir_all(&dir_path).await
+        .map_err(|_| {
+            warn!("Couldn't create dir [{}]", &dir_path);
+            AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() }
+        })?;
     // Save file on disk
     form.file.file.persist(&path)
-        .map_err(|_| AppError::InternalServerError { msg: "Couldn't write file".to_string() })?;
+        .map_err(|e| {
+            warn!("Couldn't write file to [{}] with error: {:?}", &path, e);
+            AppError::InternalServerError { msg: "Couldn't write file".to_string() }
+        })?;
 
     // Create a new record in files table
     let record = sqlx::query("insert into files (filename, path, size, user_id) values ($1, $2, $3, $4) returning id")
@@ -87,12 +109,15 @@ async fn upload_file(
         .bind(user_id)
         .fetch_one(&data.db_pool)
         .await
-        .map_err(|_| AppError::InternalServerError { msg: "File upload query failed".to_string() })?;
+        .map_err(|e| {
+            warn!("File upload query failed with error: {:?}", e);
+            AppError::InternalServerError { msg: "File upload query failed".to_string() }
+        })?;
 
-    Ok(HttpResponse::Ok().json(FileUploadResponse {
-        file_id: record.get::<i32, _>("id"),
-        path,
-    }))
+    let file_id = record.get::<i32, _>("id");
+    debug!("File with ID [{}] uploaded to [{}]", file_id, path);
+
+    Ok(HttpResponse::Ok().json(FileUploadResponse { file_id: file_id, path }))
 }
 
 // Downloads the file from authorized user storage
@@ -100,9 +125,7 @@ async fn upload_file(
 async fn download_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     // Token validation
     let token = get_and_validate_jwt(&req, &data.secret)?;
-    let user_id: i32 = token.claims.sub
-        .parse::<i32>()
-        .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?;
+    let user_id = parse_user_id(token.claims.sub)?;
 
     // Check if the file exists in a db
     let record = DBFile::exists_and_belongs_to(
@@ -111,9 +134,15 @@ async fn download_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Dat
         user_id
     ).await?;
 
-    let file = fs::File::open(record.get::<String, _>("path"))
+    let path: String = record.get("path");
+    let file = fs::File::open(&path)
         .await
-        .map_err(|_| AppError::InternalServerError { msg: "Failed to open file".to_string() })?;
+        .map_err(|e| {
+            warn!("Failed to open file [{}] with error: {:?}", path, e);
+            AppError::InternalServerError { msg: "Failed to open file".to_string() }
+        })?;
+
+    debug!("File downloaded from path [{}]", path);
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
@@ -134,26 +163,40 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
     get_and_validate_jwt(&req, &data.secret)?;
 
     let mut conn = data.redis_pool
-            .get().await
-            .map_err(|_| AppError::InternalServerError { msg: "Connection to Redis lost".to_string() })?;
+        .get().await
+        .map_err(|_| {
+            warn!("Connection to Redis lost");
+            AppError::InternalServerError { msg: "Connection to Redis lost".to_string() }
+        })?;
 
     // Validate the share code
     let file_id = match conn.get::<_, Option<i32>>(share_code.clone()).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return Err(AppError::BadRequest { msg: "Invalid share code".to_string() }),
-        Err(_) => return Err(AppError::InternalServerError { msg: "Failed to fetch share code from Redis".to_string() })
+        Ok(Some(id)) => {
+            debug!("File ID valid: {}", id);
+            id
+        }
+        Ok(None) => {
+            debug!("Invalid share code [{}]", share_code);
+            return Err(AppError::BadRequest { msg: "Invalid share code".to_string() })
+        }
+        Err(_) => {
+            debug!("Failed to fetch share code from Redis");
+            return Err(AppError::InternalServerError { msg: "Failed to fetch share code from Redis".to_string() })
+        }
     };
-
-    println!("File ID valid: {}", file_id);
 
     // Download the file
     let record = DBFile::exists(file_id, &data.db_pool).await?;
-    println!("Got record");
 
-    let file = fs::File::open(record.get::<String, _>("path"))
+    let path: String = record.get("path");
+    let file = fs::File::open(&path)
         .await
-        .map_err(|_| AppError::InternalServerError { msg: "Failed to open file".to_string() })?;
-    println!("Got file");
+        .map_err(|e| {
+            warn!("Failed to open file [{}] with error: {:?}", path, e);
+            AppError::InternalServerError { msg: "Failed to open file".to_string() }
+        })?;
+
+    debug!("Shared file downloaded from [{}] with code [{}]", path, share_code);
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
@@ -173,9 +216,7 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
 #[post("/api/files/delete/{file_id}/")]
 async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let token = get_and_validate_jwt(&req, &data.secret)?;
-    let user_id: i32 = token.claims.sub
-        .parse::<i32>()
-        .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?;
+    let user_id = parse_user_id(token.claims.sub)?;
     let file_id = file_identifier.into_inner();
 
     // Check if the file exists in a db
@@ -189,7 +230,10 @@ async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: we
     let path: String = record.get("path");
     tokio::fs::remove_file(&path)
         .await
-        .map_err(|_| AppError::InternalServerError { msg: "Failed to delete file".to_string() })?;
+        .map_err(|e| {
+            warn!("Failed to delete file with error: {:?}", e);
+            AppError::InternalServerError { msg: "Failed to delete file".to_string() }
+        })?;
 
     // Remove the record in db
     let _ = sqlx::query("delete from files where id = $1")
@@ -198,6 +242,8 @@ async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: we
         .await
         .map_err(|_| AppError::InternalServerError { msg: "File delete query failed".to_string() })?;
 
+    debug!("File deleted from [{}]", path);
+
     // An empty OK response
     Ok(HttpResponse::NoContent().finish())
 }
@@ -205,9 +251,7 @@ async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: we
 #[post("/api/files/share/{file_id}/")]
 async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let token = get_and_validate_jwt(&req, &data.secret)?;
-    let user_id: i32 = token.claims.sub
-        .parse::<i32>()
-        .map_err(|_| AppError::InternalServerError { msg: "Sub id parse failed".to_string() })?;
+    let user_id = parse_user_id(token.claims.sub)?;
     let file_id = file_id.into_inner();
 
     // Verify if file exists
@@ -230,7 +274,10 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
 
         let mut conn = data.redis_pool
             .get().await
-            .map_err(|_| AppError::InternalServerError { msg: "Connection to Redis lost".to_string() })?;
+            .map_err(|_| {
+                warn!("Connection to Redis lost");
+                AppError::InternalServerError { msg: "Connection to Redis lost".to_string() }
+            })?;
 
         let key: &str = &share_code;
         let value: Option<String> = conn.get(key).await.ok();
@@ -244,7 +291,10 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
                     file_id,
                     5 * 60 // 5 minutes
                 ).await
-                .map_err(|_| { AppError::InternalServerError { msg: "Failed to save share code".to_string() } })?;
+                .map_err(|_| {
+                    warn!("Failed to save share code [{}]", share_code);
+                    AppError::InternalServerError { msg: "Failed to save share code".to_string() }
+                })?;
                 
                 break;
             }

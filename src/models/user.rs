@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 // User record in a database.
 // To be used only internally.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct DBUser {
     pub email: String,
     pub username: String,
@@ -18,7 +18,7 @@ pub struct UserInfo {
     pub username: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct UserLoginCredentials {
     pub email: String,
     pub password_hash: String,

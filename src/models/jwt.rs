@@ -2,7 +2,7 @@ use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Claims {
     pub sub: String,           // subject (whom token refers to)
     pub exp: usize,            // token expiration date
@@ -16,7 +16,7 @@ pub struct JwtTokenPair {
     refresh_token: String,
 }
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum TokenType {
     Access,
     Refresh,
