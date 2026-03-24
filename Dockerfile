@@ -1,4 +1,4 @@
-FROM rust:1.93 AS builder
+FROM rust:latest AS builder
 
 WORKDIR /app
 
@@ -7,6 +7,7 @@ RUN mkdir src && echo "fn main() {println!(\"if you see this, the build broke\")
 RUN cargo build --release && rm -rf src
 
 COPY . .
+
 RUN cargo build --release
 
 FROM ubuntu:latest
@@ -20,6 +21,8 @@ ENV PATH="/usr/bin:$PATH"
 RUN openssl version
 
 COPY --from=builder /app/target/release/storage-crab /app/storage-crab-api
+
+COPY key.pem cert.pem ./
 
 EXPOSE 8080
 

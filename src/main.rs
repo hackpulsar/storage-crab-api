@@ -6,10 +6,11 @@ mod utils;
 use core::panic;
 
 use actix_multipart::form::tempfile::TempFileConfig;
-use actix_web::{web, App, HttpServer};
+use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
+use actix_web::{App, HttpServer, web};
 use deadpool_redis::{Config, Runtime};
 use sqlx::{Postgres};
-use log::{info};
+use log::{info, error};
 
 use crate::routes::init_routes;
 use crate::utils::generate_shared_secret;
@@ -48,6 +49,21 @@ async fn main() -> std::io::Result<()> {
     let secret = generate_shared_secret();
     info!("Shared secret generated.");
 
+    info!("Setting up certificates...");
+    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls()).unwrap();
+    builder
+        .set_private_key_file("key.pem", SslFiletype::PEM)
+        .map_err(|e| {
+            error!("Setting private key failed with error: {:?}", e);
+            e
+        })?;
+    builder.set_certificate_chain_file("cert.pem")
+        .map_err(|e| {
+            error!("Setting certificate chain file failed with error: {:?}", e);
+            e
+        })?;
+    info!("Certificates set.");
+
     // Starting a web server
     info!("Starting server.");
     HttpServer::new(move || {
@@ -60,7 +76,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(TempFileConfig::default().directory(std::env::var("FILES_STORAGE_PATH").unwrap()))
             .configure(init_routes)
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind_openssl("0.0.0.0:8080", builder)?
     .run()
     .await
 }
