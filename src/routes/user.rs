@@ -1,6 +1,6 @@
 use actix_web::{get, web, HttpRequest, HttpResponse};
 
-use crate::{models::user::UserInfo, routes::user};
+use crate::{models::user::UserInfo};
 use crate::services::auth::get_and_validate_jwt;
 use crate::utils::errors::AppError;
 use crate::AppState;

@@ -1,5 +1,3 @@
-use core::fmt;
-
 use actix_web::{post, web, HttpRequest, HttpResponse};
 use redis::AsyncCommands;
 use serde::Deserialize;
