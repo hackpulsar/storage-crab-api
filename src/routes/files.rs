@@ -261,6 +261,22 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
         user_id
     ).await?;
 
+    let mut conn = data.redis_pool
+        .get().await
+        .map_err(|_| {
+            warn!("Connection to Redis lost");
+            AppError::InternalServerError { msg: "Connection to Redis lost".to_string() }
+        })?;
+
+    // Delete the previous code if exists
+    if let Ok(Some(old_code)) = conn.get::<_, Option<String>>(file_id).await {
+        // Delete old code key
+        let _: () = conn.del(&old_code).await.map_err(|_| {
+            warn!("Failed to delete old share code [{}] for file [{}]", old_code, file_id);
+            AppError::InternalServerError { msg: "Failed to delete old share code".to_string() }
+        })?;
+    }
+
     let mut share_code: String;
 
     // Generate a unique token of length 8
@@ -272,29 +288,26 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
             .map(char::from)
             .collect();
 
-        let mut conn = data.redis_pool
-            .get().await
-            .map_err(|_| {
-                warn!("Connection to Redis lost");
-                AppError::InternalServerError { msg: "Connection to Redis lost".to_string() }
-            })?;
-
         let key: &str = &share_code;
         let value: Option<String> = conn.get(key).await.ok();
 
         match value {
             Some(_) => { /* Key already exists, continue */ },
             None => {
-                // Code is unique, add it to redis
-                conn.set_ex::<_, _, ()>(
-                    key,
-                    file_id,
-                    5 * 60 // 5 minutes
-                ).await
-                .map_err(|_| {
-                    warn!("Failed to save share code [{}]", share_code);
-                    AppError::InternalServerError { msg: "Failed to save share code".to_string() }
-                })?;
+                // Code is unique, add it to redis with 5 minutes expiration time
+                conn.set_ex::<_, _, ()>(key, file_id, 5 * 60).await
+                    .map_err(|_| {
+                        warn!("Failed to save share code [{}]", share_code);
+                        AppError::InternalServerError { msg: "Failed to save share code".to_string() }
+                    })?;
+
+                // Reverse map, for accessing current share code for a file.
+                // Overwrites previous data.
+                conn.set_ex::<_, _, ()>(file_id, key, 5 * 60).await
+                    .map_err(|_| {
+                        warn!("Failed to save reverse mapping for share code [{}]", share_code);
+                        AppError::InternalServerError { msg: "Failed to save reverse mapping for share code".to_string() }
+                    })?;
                 
                 break;
             }
