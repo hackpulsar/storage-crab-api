@@ -95,7 +95,7 @@ async fn login(user: web::Json<UserLoginCredentials>, data: web::Data<AppState>)
         },
         None => {
             debug!("No user with credentials [{:?}]", user.into_inner());
-            Err(AppError::BadRequest { msg: "No user found with given credentials".to_string() })
+            Err(AppError::NotFound { msg: "No user found with given credentials".to_string() })
         }
     }
 }
@@ -127,12 +127,12 @@ async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>
         })?;
 
     // If token exists in Redis, it is blacklisted
-    match conn.get::<_, Option<String>>(token.claims.jti.clone()).await.ok() {
-        Some(_) => {
+    match conn.get::<_, Option<String>>(token.claims.jti.clone()).await {
+        Ok(Some(_)) => {
             debug!("Token is blacklisted: [{:?}]", req.0);
             Err(AppError::BadRequest { msg: "Token is blacklisted".to_string() })
         }
-        None => {
+        Ok(None) => {
             // Blacklist token. 
             // Redis will delete this entry as soon as the token gets expired.
             let _: () = conn.set_ex(
@@ -151,6 +151,10 @@ async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>
                 token.claims.sub,
                 data.secret.clone()
             )))
+        }
+        Err(_) => {
+            warn!("Faied to fetch token from Redis.");
+            Err(AppError::InternalServerError {msg: "Faied to fetch token from Redis.".to_string()})
         }
     }
 }

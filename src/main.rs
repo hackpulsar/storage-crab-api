@@ -60,7 +60,7 @@ async fn main() -> std::io::Result<()> {
                 db_pool: db_pool.clone(),
                 redis_pool: redis_pool.clone(),
             }))
-            .app_data(TempFileConfig::default().directory(std::env::var("FILES_STORAGE_PATH").unwrap()))
+            .app_data(TempFileConfig::default().directory(std::env::var("TMP_FILES_STORAGE").unwrap()))
             .configure(init_routes)
     })
     .bind_openssl("0.0.0.0:8080", builder)?
