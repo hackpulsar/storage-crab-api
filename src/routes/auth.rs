@@ -120,8 +120,7 @@ async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>
     }
 
     // Check if token is blacklisted
-    let mut conn = data.redis_pool
-        .get().await
+    let mut conn = data.redis_pool.get().await
         .map_err(|_| {
             warn!("Connection to Redis lost");
             AppError::InternalServerError { msg: "Connection to Redis lost".to_string() }
@@ -136,7 +135,7 @@ async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>
         None => {
             // Blacklist token. 
             // Redis will delete this entry as soon as the token gets expired.
-            conn.set_ex::<_, _, ()>(
+            let _: () = conn.set_ex(
                 token.claims.jti.clone(),
                 req.refresh_token.clone(),
                 // saturating_sub wraps to zero to prevent underflow

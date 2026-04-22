@@ -170,7 +170,7 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
         })?;
 
     // Validate the share code
-    let file_id = match conn.get::<_, Option<i32>>(share_code.clone()).await {
+    let file_id: i32 = match conn.get(share_code.clone()).await {
         Ok(Some(id)) => {
             debug!("File ID valid: {}", id);
             id
@@ -268,7 +268,7 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
             AppError::InternalServerError { msg: "Connection to Redis lost".to_string() }
         })?;
 
-    // Delete the previous code if exists
+    // Delete the previous code if exists   
     if let Ok(Some(old_code)) = conn.get::<_, Option<String>>(file_id).await {
         // Delete old code key
         let _: () = conn.del(&old_code).await.map_err(|_| {
@@ -295,7 +295,7 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
             Some(_) => { /* Key already exists, continue */ },
             None => {
                 // Code is unique, add it to redis with 5 minutes expiration time
-                conn.set_ex::<_, _, ()>(key, file_id, 5 * 60).await
+                let _:() = conn.set_ex(key, file_id, 5 * 60).await
                     .map_err(|_| {
                         warn!("Failed to save share code [{}]", share_code);
                         AppError::InternalServerError { msg: "Failed to save share code".to_string() }
@@ -303,7 +303,7 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
 
                 // Reverse map, for accessing current share code for a file.
                 // Overwrites previous data.
-                conn.set_ex::<_, _, ()>(file_id, key, 5 * 60).await
+                let _:() = conn.set_ex(file_id, key, 5 * 60).await
                     .map_err(|_| {
                         warn!("Failed to save reverse mapping for share code [{}]", share_code);
                         AppError::InternalServerError { msg: "Failed to save reverse mapping for share code".to_string() }

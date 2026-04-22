@@ -1,7 +1,6 @@
 use std::process::Command;
 
 pub mod errors;
-pub mod logger;
 
 // Generates shared secret using OpenSSL
 pub fn generate_shared_secret() -> String {
