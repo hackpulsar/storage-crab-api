@@ -1,6 +1,6 @@
 use testcontainers::{runners::AsyncRunner, ContainerAsync};
 use testcontainers_modules::{postgres::Postgres, redis::Redis};
-use storage_crab::{AppState, create_db_pool, create_redis_pool};
+use storage_crab::{AppState, create_db_pool, create_redis_pool, models::jwt::JwtTokenPair};
 use tempfile::TempDir;
 
 use actix_web::{dev::{Service, ServiceResponse}, test};
@@ -17,9 +17,6 @@ pub struct TestContext {
 
     // Temporary files storage path while writing
     pub temp_dir: TempDir,
-
-    // Destination folder for uploaded files
-    pub storage_dir: TempDir,
 
     // Containers wrappers
     _pg: ContainerAsync<Postgres>,
@@ -56,16 +53,18 @@ pub async fn setup() -> TestContext {
             storage_dir: storage_dir.path().to_str().unwrap().to_string()
         },
         temp_dir,
-        storage_dir,
         _pg: pg,
         _redis: redis,
     }
 }
 
-pub async fn login(app: &impl TestApp, email: String, password_hash: String) -> ServiceResponse {
+pub async fn login(app: &impl TestApp, email: &str, password_hash: &str) -> ServiceResponse {
     let req = test::TestRequest::post()
         .uri("/api/token/get/")
-        .set_json(UserLoginCredentials { email, password_hash })
+        .set_json(UserLoginCredentials { 
+            email: email.to_string(),
+            password_hash: password_hash.to_string()
+        })
         .to_request();
 
     return test::call_service(&app, req).await;
@@ -93,6 +92,26 @@ pub fn create_unique_test_user() -> DBUser {
         username: "test".to_string(),
         password_hash: "test".to_string()
     };
+}
+
+pub struct Credentials {
+    pub tokens: JwtTokenPair
+}
+
+pub async fn sign_in_new_user(app: &impl TestApp) -> Credentials {
+    let user = create_unique_test_user();
+
+    let resp = register(&app, &user).await;
+    assert!(resp.status().is_success());
+
+    let resp = login(&app, &user.email, &user.password_hash).await;
+    assert!(resp.status().is_success());
+
+    let tokens: JwtTokenPair = test::read_body_json(resp).await;
+    assert!(!tokens.access_token.is_empty());
+    assert!(!tokens.refresh_token.is_empty());
+
+    Credentials { tokens }
 }
 
 #[macro_export]

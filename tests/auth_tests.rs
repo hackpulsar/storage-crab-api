@@ -31,7 +31,7 @@ async fn test_auth_flow() {
     assert_eq!(body.username, new_user.username);
 
     // Step 2. Login
-    let resp = login(&app, new_user.email, new_user.password_hash).await;
+    let resp = login(&app, &new_user.email, &new_user.password_hash).await;
     assert!(resp.status().is_success());
 
     let body: JwtTokenPair = test::read_body_json(resp).await;
@@ -77,7 +77,7 @@ async fn test_login_wrong_password() {
     let resp = register(&app, &new_user).await;
     assert_eq!(resp.status(), 200);
 
-    let resp = login(&app, new_user.email, "wrong_password".to_string()).await;
+    let resp = login(&app, &new_user.email, "wrong_password").await;
     assert_eq!(resp.status(), 400);
 }
 
@@ -86,7 +86,7 @@ async fn test_login_not_found() {
     let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let resp = login(&app, "nonexistant@nowhere.com".to_string(), "phantom_pass".to_string()).await;
+    let resp = login(&app, "nonexistant@nowhere.com", "phantom_pass").await;
     assert_eq!(resp.status(), 404);
 }
 
@@ -110,21 +110,11 @@ async fn test_refresh_wrong_type() {
     let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = create_unique_test_user();
-
-    let resp = register(&app, &new_user).await;
-    assert!(resp.status().is_success());
-
-    let resp = login(&app, new_user.email, new_user.password_hash).await;
-    assert!(resp.status().is_success());
-
-    let body: JwtTokenPair = test::read_body_json(resp).await;
-    assert!(!body.access_token.is_empty());
-    assert!(!body.refresh_token.is_empty());
+    let credentials = sign_in_new_user(&app).await;
 
     let req = test::TestRequest::post()
         .uri("/api/token/refresh/")
-        .set_json(json!({ "refresh_token": body.access_token.clone() })) // passing access instead of refresh
+        .set_json(json!({ "refresh_token": credentials.tokens.access_token.clone() })) // passing access instead of refresh
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -136,21 +126,11 @@ async fn test_refresh_token_blacklisted() {
     let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = create_unique_test_user();
-
-    let resp = register(&app, &new_user).await;
-    assert!(resp.status().is_success());
-
-    let resp = login(&app, new_user.email, new_user.password_hash).await;
-    assert!(resp.status().is_success());
-
-    let body: JwtTokenPair = test::read_body_json(resp).await;
-    assert!(!body.access_token.is_empty());
-    assert!(!body.refresh_token.is_empty());
+    let credentials = sign_in_new_user(&app).await;
 
     let req = test::TestRequest::post()
         .uri("/api/token/refresh/")
-        .set_json(json!({ "refresh_token": body.refresh_token.clone() }))
+        .set_json(json!({ "refresh_token": credentials.tokens.refresh_token.clone() }))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
@@ -158,7 +138,7 @@ async fn test_refresh_token_blacklisted() {
 
     let req = test::TestRequest::post()
         .uri("/api/token/refresh/")
-        .set_json(json!({ "refresh_token": body.refresh_token.clone() }))
+        .set_json(json!({ "refresh_token": credentials.tokens.refresh_token.clone() }))
         .to_request();
 
     let resp = test::call_service(&app, req).await;
