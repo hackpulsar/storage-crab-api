@@ -59,6 +59,7 @@ async fn main() -> std::io::Result<()> {
                 secret: secret.clone(),
                 db_pool: db_pool.clone(),
                 redis_pool: redis_pool.clone(),
+                storage_dir: std::env::var("FILES_STORAGE_PATH").unwrap()
             }))
             .app_data(TempFileConfig::default().directory(std::env::var("TMP_FILES_STORAGE").unwrap()))
             .configure(init_routes)

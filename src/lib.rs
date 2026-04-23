@@ -12,6 +12,7 @@ pub struct AppState {
     pub secret: String,
     pub db_pool: sqlx::Pool<Postgres>,
     pub redis_pool: deadpool_redis::Pool,
+    pub storage_dir: String
 }
 
 // Connects to a database

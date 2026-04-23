@@ -30,3 +30,4 @@ testcontainers-modules = { version = "0.15", features = ["postgres", "redis"]}
 tempfile = "3"
 serde_json = "1"
 actix-http = "3"
+actix-multipart-test = { git = "https://github.com/linasdev/actix-multipart-test", branch = "main"}

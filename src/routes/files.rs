@@ -77,8 +77,7 @@ async fn upload_file(
     let username_hash = hex::encode(hasher.finalize());
 
     // Path to files storage
-    let storage_path = std::env::var("FILES_STORAGE_PATH").unwrap();
-    let path = format!("{}/{}/{}", storage_path, username_hash, form.json.filename.clone());
+    let path = format!("{}/{}/{}", data.storage_dir, username_hash, form.json.filename.clone());
 
     // Check if file already exists
     if Path::new(path.as_str()).exists() {
@@ -86,7 +85,7 @@ async fn upload_file(
         return Err(AppError::BadRequest { msg: "File with this name already exists".to_string() });
     }
 
-    let dir_path = format!("{}/{}", storage_path, username_hash);
+    let dir_path = format!("{}/{}", data.storage_dir, username_hash);
 
     // Create dirs for file of don't exist
     fs::create_dir_all(&dir_path).await

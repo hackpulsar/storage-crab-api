@@ -108,6 +108,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "actix-multipart-test"
+version = "0.0.3"
+source = "git+https://github.com/linasdev/actix-multipart-test?branch=main#c4ef61f66c382dc1a185789eb52f9b8279d8e1cf"
+dependencies = [
+ "uuid",
+]
+
+[[package]]
 name = "actix-router"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3218,6 +3226,7 @@ version = "0.1.0"
 dependencies = [
  "actix-http",
  "actix-multipart",
+ "actix-multipart-test",
  "actix-web",
  "chrono",
  "deadpool-redis",
