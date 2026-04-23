@@ -2,13 +2,12 @@ mod common;
 
 use actix_web::{dev::ServiceResponse, test};
 use actix_multipart_test::MultiPartFormDataBuilder;
-use storage_crab::models::{
-    user::DBUser,
-    jwt::JwtTokenPair
-};
+use storage_crab::models::jwt::JwtTokenPair;
 use uuid::Uuid;
 
-async fn upload_test_file(app: &impl common::TestApp, access_token: String, custom_name: Option<String>) -> ServiceResponse {
+use crate::common::*;
+
+async fn upload_test_file(app: &impl TestApp, access_token: String, custom_name: Option<String>) -> ServiceResponse {
     let mut builder = MultiPartFormDataBuilder::new();
     let filename = custom_name.unwrap_or(format!("test_{}", Uuid::new_v4()));
     builder.with_file("tests/fixtures/test.jpg", "file", "image/jpg", "test.jpg");
@@ -27,19 +26,15 @@ async fn upload_test_file(app: &impl common::TestApp, access_token: String, cust
 
 #[actix_web::test]
 async fn test_upload_file() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = DBUser {
-        email: "test@test.com".to_string(),
-        username: "test".to_string(),
-        password_hash: "test".to_string()
-    };
+    let new_user = create_unique_test_user();
 
     // Register & login
-    let resp = common::register(&app, &new_user).await;
+    let resp = register(&app, &new_user).await;
     assert!(resp.status().is_success());
-    let resp = common::login(&app, new_user.email, new_user.password_hash).await;
+    let resp = login(&app, new_user.email, new_user.password_hash).await;
     assert!(resp.status().is_success());
 
     let tokens: JwtTokenPair = test::read_body_json(resp).await;
@@ -52,7 +47,7 @@ async fn test_upload_file() {
 
 #[actix_web::test]
 async fn test_upload_unauthorized() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
     let resp = upload_test_file(&app, "banana".to_string(), None).await;
@@ -61,19 +56,15 @@ async fn test_upload_unauthorized() {
 
 #[actix_web::test]
 async fn test_upload_file_exists() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = DBUser {
-        email: "test@test.com".to_string(),
-        username: "test".to_string(),
-        password_hash: "test".to_string()
-    };
+    let new_user = create_unique_test_user();
 
     // Register & login
-    let resp = common::register(&app, &new_user).await;
+    let resp = register(&app, &new_user).await;
     assert!(resp.status().is_success());
-    let resp = common::login(&app, new_user.email, new_user.password_hash).await;
+    let resp = login(&app, new_user.email, new_user.password_hash).await;
     assert!(resp.status().is_success());
 
     let tokens: JwtTokenPair = test::read_body_json(resp).await;

@@ -1,9 +1,11 @@
 mod common;
 
 use actix_web::test;
-use storage_crab::models::{jwt::JwtTokenPair, user::DBUser};
+use storage_crab::models::jwt::JwtTokenPair;
 use serde::Deserialize;
 use serde_json::json;
+
+use crate::common::*;
 
 #[derive(Deserialize)]
 struct RegisterResponse {
@@ -14,17 +16,13 @@ struct RegisterResponse {
 
 #[actix_web::test]
 async fn test_auth_flow() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = DBUser {
-        email: "test@test.com".to_string(),
-        username: "test".to_string(),
-        password_hash: "test".to_string()
-    };
+    let new_user = create_unique_test_user();
 
     // Step 1. Register
-    let resp = common::register(&app, &new_user).await;
+    let resp = register(&app, &new_user).await;
     assert_eq!(resp.status(), 200);
 
     let body: RegisterResponse = test::read_body_json(resp).await;
@@ -33,7 +31,7 @@ async fn test_auth_flow() {
     assert_eq!(body.username, new_user.username);
 
     // Step 2. Login
-    let resp = common::login(&app, new_user.email, new_user.password_hash).await;
+    let resp = login(&app, new_user.email, new_user.password_hash).await;
     assert!(resp.status().is_success());
 
     let body: JwtTokenPair = test::read_body_json(resp).await;
@@ -56,53 +54,45 @@ async fn test_auth_flow() {
 
 #[actix_web::test]
 async fn test_register_already_exists() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = DBUser {
-        email: "A@a.com".to_string(),
-        username: "a".to_string(),
-        password_hash: "a".to_string()
-    };
+    let new_user = create_unique_test_user();
 
-    let resp = common::register(&app, &new_user).await;
+    let resp = register(&app, &new_user).await;
     assert_eq!(resp.status(), 200);
 
     // Try register same user again
-    let resp = common::register(&app, &new_user).await;
+    let resp = register(&app, &new_user).await;
     assert!(!resp.status().is_success());
 }
 
 #[actix_web::test]
 async fn test_login_wrong_password() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = DBUser {
-        email: "test@test.com".to_string(),
-        username: "test".to_string(),
-        password_hash: "test".to_string()
-    };
+    let new_user = create_unique_test_user();
 
-    let resp = common::register(&app, &new_user).await;
+    let resp = register(&app, &new_user).await;
     assert_eq!(resp.status(), 200);
 
-    let resp = common::login(&app, new_user.email, "NOTtest".to_string()).await;
+    let resp = login(&app, new_user.email, "wrong_password".to_string()).await;
     assert_eq!(resp.status(), 400);
 }
 
 #[actix_web::test]
 async fn test_login_not_found() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let resp = common::login(&app, "nonexistant@nowhere.com".to_string(), "phantom_pass".to_string()).await;
+    let resp = login(&app, "nonexistant@nowhere.com".to_string(), "phantom_pass".to_string()).await;
     assert_eq!(resp.status(), 404);
 }
 
 #[actix_web::test]
 async fn test_refresh_invalid_token() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
     let req = test::TestRequest::post()
@@ -117,19 +107,15 @@ async fn test_refresh_invalid_token() {
 
 #[actix_web::test]
 async fn test_refresh_wrong_type() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = DBUser {
-        email: "test@test.com".to_string(),
-        username: "test".to_string(),
-        password_hash: "test".to_string()
-    };
+    let new_user = create_unique_test_user();
 
-    let resp = common::register(&app, &new_user).await;
+    let resp = register(&app, &new_user).await;
     assert!(resp.status().is_success());
 
-    let resp = common::login(&app, new_user.email, new_user.password_hash).await;
+    let resp = login(&app, new_user.email, new_user.password_hash).await;
     assert!(resp.status().is_success());
 
     let body: JwtTokenPair = test::read_body_json(resp).await;
@@ -147,19 +133,15 @@ async fn test_refresh_wrong_type() {
 
 #[actix_web::test]
 async fn test_refresh_token_blacklisted() {
-    let ctx = common::setup().await;
+    let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = DBUser {
-        email: "test@test.com".to_string(),
-        username: "test".to_string(),
-        password_hash: "test".to_string()
-    };
+    let new_user = create_unique_test_user();
 
-    let resp = common::register(&app, &new_user).await;
+    let resp = register(&app, &new_user).await;
     assert!(resp.status().is_success());
 
-    let resp = common::login(&app, new_user.email, new_user.password_hash).await;
+    let resp = login(&app, new_user.email, new_user.password_hash).await;
     assert!(resp.status().is_success());
 
     let body: JwtTokenPair = test::read_body_json(resp).await;

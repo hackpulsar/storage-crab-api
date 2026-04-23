@@ -6,6 +6,7 @@ use tempfile::TempDir;
 use actix_web::{dev::{Service, ServiceResponse}, test};
 use actix_http::Request;
 use storage_crab::{models::user::{DBUser, UserLoginCredentials}};
+use uuid::Uuid;
 
 // Blanket impl, typedef basically
 pub trait TestApp: Service<Request, Response = ServiceResponse, Error = actix_web::Error> {}
@@ -84,6 +85,14 @@ pub async fn register(
         .to_request();
 
     return test::call_service(&app, req).await;
+}
+
+pub fn create_unique_test_user() -> DBUser {
+    return DBUser {
+        email: format!("{}@test.com", Uuid::new_v4()).to_string(),
+        username: "test".to_string(),
+        password_hash: "test".to_string()
+    };
 }
 
 #[macro_export]
