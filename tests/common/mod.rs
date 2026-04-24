@@ -94,7 +94,9 @@ pub fn create_unique_test_user() -> DBUser {
     };
 }
 
+#[allow(dead_code)] // Ignore for test helper
 pub struct Credentials {
+    pub user: DBUser,
     pub tokens: JwtTokenPair
 }
 
@@ -111,7 +113,7 @@ pub async fn sign_in_new_user(app: &impl TestApp) -> Credentials {
     assert!(!tokens.access_token.is_empty());
     assert!(!tokens.refresh_token.is_empty());
 
-    Credentials { tokens }
+    Credentials { user, tokens }
 }
 
 #[macro_export]

@@ -33,6 +33,9 @@ async fn test_upload_file() {
         
     let resp = upload_test_file(&app, credentials.tokens.access_token, None).await;
     assert!(resp.status().is_success());
+
+    let details: FileUploadResponse = test::read_body_json(resp).await;
+    assert!(std::path::Path::new(&details.path).exists());
 }
 
 #[actix_web::test]
@@ -298,7 +301,7 @@ async fn test_share_file_unauthorized() {
 }
 
 #[actix_web::test]
-async fn tests_download_shared() {
+async fn test_download_shared() {
     let ctx = setup().await;
     let app = make_app!(ctx);
 

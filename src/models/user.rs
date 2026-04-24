@@ -11,7 +11,7 @@ pub struct DBUser {
 
 // Essential user information.
 // To be used externally.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct UserInfo {
     pub id: i32,
     pub email: String,
