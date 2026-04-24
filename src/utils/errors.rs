@@ -15,6 +15,9 @@ pub enum AppError {
 
     #[display("Internal server error: {}", msg)]
     InternalServerError { msg: String },
+
+    #[display("Not found: {}", msg)]
+    NotFound { msg: String }
 }
 
 #[derive(Serialize)]
@@ -28,6 +31,7 @@ impl ResponseError for AppError {
             AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::BadRequest { .. } => StatusCode::BAD_REQUEST,
             AppError::InternalServerError { .. } => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::NotFound { .. } => StatusCode::NOT_FOUND
         }
     }
 

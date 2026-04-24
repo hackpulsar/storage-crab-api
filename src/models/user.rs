@@ -11,14 +11,14 @@ pub struct DBUser {
 
 // Essential user information.
 // To be used externally.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct UserInfo {
     pub id: i32,
     pub email: String,
     pub username: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct UserLoginCredentials {
     pub email: String,
     pub password_hash: String,

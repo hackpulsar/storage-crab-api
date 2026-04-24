@@ -20,7 +20,7 @@ pub struct FileUploadForm {
 }
 
 // A file in database
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct DBFile {
     pub id: i32,
     pub filename: String,
@@ -30,13 +30,13 @@ pub struct DBFile {
     pub user_id: i32
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct FileUploadResponse {
     pub file_id: i32,
     pub path: String
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct FileShareResponse {
     pub code: String
 }
@@ -76,7 +76,7 @@ impl DBFile {
             }
             None => {
                 debug!("File with ID [{}] foesn't exist", id);
-                return Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
+                return Err(AppError::NotFound { msg: "File doesn't exist".to_string() })
             }
         }
     }

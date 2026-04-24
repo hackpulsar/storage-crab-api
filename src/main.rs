@@ -1,26 +1,13 @@
-mod models;
-mod routes;
-mod services;
-mod utils;
-
 use core::panic;
 
 use actix_multipart::form::tempfile::TempFileConfig;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use actix_web::{App, HttpServer, web};
-use deadpool_redis::{Config, Runtime};
-use sqlx::{Postgres};
 use log::{info, error};
 
+use storage_crab::*;
 use crate::routes::init_routes;
 use crate::utils::generate_shared_secret;
-
-// Holds app state
-pub struct AppState {
-    secret: String,
-    db_pool: sqlx::Pool<Postgres>,
-    redis_pool: deadpool_redis::Pool,
-}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -72,27 +59,12 @@ async fn main() -> std::io::Result<()> {
                 secret: secret.clone(),
                 db_pool: db_pool.clone(),
                 redis_pool: redis_pool.clone(),
+                storage_dir: std::env::var("FILES_STORAGE_PATH").unwrap()
             }))
-            .app_data(TempFileConfig::default().directory(std::env::var("FILES_STORAGE_PATH").unwrap()))
+            .app_data(TempFileConfig::default().directory(std::env::var("TMP_FILES_STORAGE").unwrap()))
             .configure(init_routes)
     })
     .bind_openssl("0.0.0.0:8080", builder)?
     .run()
     .await
-}
-
-// Connects to a database
-async fn create_db_pool(db_url: String) -> Result<sqlx::Pool<Postgres>, sqlx::Error> {
-    info!("Connecting to PostgreSQL...");
-    let pool = sqlx::postgres::PgPool::connect(db_url.as_str()).await?;
-    info!("Connected to PostgreSQL.");
-    Ok(pool)
-}
-
-// Creates a new redis pool
-fn create_redis_pool(redis_url: String) -> Result<deadpool_redis::Pool, deadpool_redis::CreatePoolError> {
-    info!("Connecting to Redis...");
-    let pool = Config::from_url(redis_url.as_str()).create_pool(Some(Runtime::Tokio1))?;
-    info!("Connected to Redis.");
-    Ok(pool)
 }

@@ -10,10 +10,10 @@ pub struct Claims {
     pub jti: String,           // token id
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct JwtTokenPair {
-    access_token: String,
-    refresh_token: String,
+    pub access_token: String,
+    pub refresh_token: String,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
