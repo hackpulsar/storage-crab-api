@@ -68,7 +68,7 @@
 // Content-Type: multipart/form-data
 // Form fields:
 //   - file: <binary>
-//   - json: {"filename": "document.pdf"}
+//   - json: {"filename": "document.pdf.enc"}
 ```
 
 ### Refresh Token
@@ -111,8 +111,8 @@ Welcome back, johndoe
 [
   {
     "id": 1,
-    "filename": "document.pdf",
-    "path": "/app/files_storage/abc123/document.pdf",
+    "filename": "document.pdf.enc",
+    "path": "/app/files_storage/<username_hash>/document.pdf.enc",
     "size": 1024000,
     "uploaded_at": "2024-01-15T10:30:00",
     "user_id": 1
@@ -125,7 +125,7 @@ Welcome back, johndoe
 // GET /api/files/download/{file_id}/
 // Response: binary file stream
 // Headers:
-//   - Content-Disposition: attachment; filename="document.pdf"
+//   - Content-Disposition: attachment; filename="document.pdf.enc"
 //   - Content-Length: 1024000
 ```
 
@@ -140,7 +140,7 @@ Welcome back, johndoe
 // GET /api/files/download/shared/{share_code}/
 // Response: binary file stream (no auth required)
 // Headers:
-//   - Content-Disposition: attachment; filename="document.pdf"
+//   - Content-Disposition: attachment; filename="document.pdf.enc"
 //   - Content-Length: 1024000
 ```
 
