@@ -1,4 +1,4 @@
-# Storage Crab API
+# 🦀 Storage Crab API
 
 A Rust-based backend API for file storage with sharing capabilities.
 
