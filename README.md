@@ -33,3 +33,7 @@ See the [docs](docs/) directory for detailed documentation:
 - [API Reference](docs/api.md)
 - [Configuration](docs/config.md)
 - [Deployment](docs/deployment.md)
+
+## License
+
+Apache 2.0 License - see [LICENSE](LICENSE)
