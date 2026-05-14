@@ -14,7 +14,7 @@ pub struct FileMetadata {
 
 #[derive(Debug, MultipartForm)]
 pub struct FileUploadForm {
-    #[multipart(limit = "100MB")]
+    #[multipart(limit = "10GB")]
     pub file: TempFile,
     pub json: Json<FileMetadata>,
 }

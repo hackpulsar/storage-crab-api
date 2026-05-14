@@ -1,5 +1,6 @@
 use core::panic;
 
+use actix_multipart::form::MultipartFormConfig;
 use actix_multipart::form::tempfile::TempFileConfig;
 use openssl::ssl::{SslAcceptor, SslFiletype, SslMethod};
 use actix_web::{App, HttpServer, web};
@@ -62,6 +63,11 @@ async fn main() -> std::io::Result<()> {
                 storage_dir: std::env::var("FILES_STORAGE_PATH").unwrap()
             }))
             .app_data(TempFileConfig::default().directory(std::env::var("TMP_FILES_STORAGE").unwrap()))
+            .app_data(
+                MultipartFormConfig::default()
+                    .total_limit(10 * 1024 * 1024 * 1024)   // 10GB
+                    .memory_limit(10 * 1024 * 1024)         // 10MB
+            )
             .configure(init_routes)
     })
     .bind_openssl("0.0.0.0:8080", builder)?
