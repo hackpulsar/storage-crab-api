@@ -1,11 +1,11 @@
 use testcontainers::{runners::AsyncRunner, ContainerAsync};
 use testcontainers_modules::{postgres::Postgres, redis::Redis};
-use storage_crab::{AppState, create_db_pool, create_redis_pool, models::jwt::JwtTokenPair};
+use storage_crab::{AppState, create_db_pool, create_redis_pool, models::{jwt::JwtTokenPair, user::UserRegisterCredentials}};
 use tempfile::TempDir;
 
 use actix_web::{dev::{Service, ServiceResponse}, test};
 use actix_http::Request;
-use storage_crab::{models::user::{DBUser, UserLoginCredentials}};
+use storage_crab::{models::user::{UserLoginCredentials}};
 use uuid::Uuid;
 
 // Blanket impl, typedef basically
@@ -58,12 +58,12 @@ pub async fn setup() -> TestContext {
     }
 }
 
-pub async fn login(app: &impl TestApp, email: &str, password_hash: &str) -> ServiceResponse {
+pub async fn login(app: &impl TestApp, email: &str, password: &str) -> ServiceResponse {
     let req = test::TestRequest::post()
         .uri("/api/token/get/")
         .set_json(UserLoginCredentials { 
             email: email.to_string(),
-            password_hash: password_hash.to_string()
+            password: password.to_string()
         })
         .to_request();
 
@@ -72,31 +72,31 @@ pub async fn login(app: &impl TestApp, email: &str, password_hash: &str) -> Serv
 
 pub async fn register(
     app: &impl TestApp, 
-    user: &DBUser
+    user: &UserRegisterCredentials
 ) -> ServiceResponse {
     let req = test::TestRequest::post()
         .uri("/api/users/")
-        .set_json(DBUser{ 
+        .set_json(UserRegisterCredentials{ 
             email: user.email.clone(),
             username: user.username.clone(),
-            password_hash: user.password_hash.clone()
+            password: user.password.clone()
         })
         .to_request();
 
     return test::call_service(&app, req).await;
 }
 
-pub fn create_unique_test_user() -> DBUser {
-    return DBUser {
+pub fn create_unique_test_user() -> UserRegisterCredentials {
+    return UserRegisterCredentials {
         email: format!("{}@test.com", Uuid::new_v4()).to_string(),
         username: "test".to_string(),
-        password_hash: "test".to_string()
+        password: "test".to_string()
     };
 }
 
 #[allow(dead_code)] // Ignore for test helper
 pub struct Credentials {
-    pub user: DBUser,
+    pub user: UserRegisterCredentials,
     pub tokens: JwtTokenPair
 }
 
@@ -106,7 +106,7 @@ pub async fn sign_in_new_user(app: &impl TestApp) -> Credentials {
     let resp = register(&app, &user).await;
     assert!(resp.status().is_success());
 
-    let resp = login(&app, &user.email, &user.password_hash).await;
+    let resp = login(&app, &user.email, &user.password).await;
     assert!(resp.status().is_success());
 
     let tokens: JwtTokenPair = test::read_body_json(resp).await;
