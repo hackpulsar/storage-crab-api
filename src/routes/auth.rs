@@ -3,10 +3,15 @@ use redis::AsyncCommands;
 use serde::Deserialize;
 use sqlx::Row;
 use log::{warn, debug};
+use argon2::{
+    Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::{
+        SaltString, rand_core::OsRng
+    }
+};
 
-use crate::AppState;
+use crate::{AppState, models::user::UserRegisterCredentials};
 use crate::models::jwt::{JwtTokenPair, TokenType};
-use crate::models::user::{DBUser, UserInfo, UserLoginCredentials};
+use crate::models::user::{UserInfo, UserLoginCredentials};
 use crate::services::auth::{get_and_validate_jwt, validate_jwt};
 use crate::utils::errors::AppError;
 
@@ -27,9 +32,9 @@ pub async fn greet(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpRe
 }
 
 #[post("/api/users/")]
-pub async fn create_user(user: web::Json<DBUser>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+pub async fn create_user(user: web::Json<UserRegisterCredentials>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     // User JSON to User struct
-    let user: DBUser = user.into_inner();
+    let user: UserRegisterCredentials = user.into_inner();
     
     // Look for a record with given email in the DB
     let record = sqlx::query("select 1 from users where email = $1")
@@ -46,11 +51,21 @@ pub async fn create_user(user: web::Json<DBUser>, data: web::Data<AppState>) -> 
         return Err(AppError::BadRequest { msg: "User with this email already exists".to_string() });
     }
 
+    // Password hashing + salting
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let password_hash = argon2.hash_password(user.password.as_bytes(), &salt)
+        .map_err(|e| {
+            warn!("Failed to hash password [{:?}]", e);
+            AppError::InternalServerError { msg: "Failed to hash password".to_string() } 
+        })?;
+
     // Perform a query
-    let record = sqlx::query("insert into users(email, username, password) values ($1, $2, $3) returning id, email, username")
+    let record = sqlx::query("insert into users(email, username, password_hash, salt) values ($1, $2, $3, $4) returning id, email, username")
         .bind(user.email.clone())
         .bind(user.username.clone())
-        .bind(user.password_hash.clone())
+        .bind(password_hash.to_string())
+        .bind(salt.to_string())
         .fetch_one(&data.db_pool)
         .await
         .map_err(|e| {
@@ -70,7 +85,7 @@ pub async fn create_user(user: web::Json<DBUser>, data: web::Data<AppState>) -> 
 #[post("api/token/get/")]
 async fn login(user: web::Json<UserLoginCredentials>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     // Look up user with given email
-    let record = sqlx::query("select password, id from users where email = $1")
+    let record = sqlx::query("select password_hash, id from users where email = $1")
         .bind(user.email.clone())
         .fetch_optional(&data.db_pool)
         .await
@@ -82,7 +97,14 @@ async fn login(user: web::Json<UserLoginCredentials>, data: web::Data<AppState>)
     // Send jwt token pair on successful login
     match record {
         Some(record) => {   
-            if user.verify_password(&record.get::<String, _>("password")) {
+            let pass = &record.get::<String, _>("password_hash");
+            let hash = PasswordHash::new(pass)
+                .map_err(|e| {
+                    warn!("Password hash parsing failed [{:?}]", e);
+                    AppError::InternalServerError { msg: "Password hash parsing failed".to_string() }
+                })?;
+
+            if Argon2::default().verify_password(user.password.as_bytes(), &hash).is_ok() {
                 debug!("User logged in [{:?}]", user.into_inner());
                 Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
                     record.get::<i32, _>("id").to_string(),

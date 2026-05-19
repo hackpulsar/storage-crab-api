@@ -7,6 +7,7 @@ pub struct DBUser {
     pub email: String,
     pub username: String,
     pub password_hash: String,
+    pub salt: String,
 }
 
 // Essential user information.
@@ -19,14 +20,14 @@ pub struct UserInfo {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct UserLoginCredentials {
+pub struct UserRegisterCredentials {
     pub email: String,
-    pub password_hash: String,
+    pub username: String,
+    pub password: String
 }
 
-impl UserLoginCredentials {
-    // Compares given password hash to user password hash
-    pub fn verify_password(&self, password_hash: &str) -> bool {
-        self.password_hash == password_hash
-    }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UserLoginCredentials {
+    pub email: String,
+    pub password: String,
 }

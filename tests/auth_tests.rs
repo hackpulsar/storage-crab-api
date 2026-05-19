@@ -16,6 +16,10 @@ struct RegisterResponse {
 
 #[actix_web::test]
 async fn test_auth_flow() {
+    let _ = env_logger::builder()
+        .is_test(true)
+        .try_init();
+
     let ctx = setup().await;
     let app = make_app!(ctx);
 
@@ -31,7 +35,7 @@ async fn test_auth_flow() {
     assert_eq!(body.username, new_user.username);
 
     // Step 2. Login
-    let resp = login(&app, &new_user.email, &new_user.password_hash).await;
+    let resp = login(&app, &new_user.email, &new_user.password).await;
     assert!(resp.status().is_success());
 
     let body: JwtTokenPair = test::read_body_json(resp).await;
