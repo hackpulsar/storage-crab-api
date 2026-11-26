@@ -2,7 +2,7 @@ use actix_multipart::form::{MultipartForm};
 use actix_web::{get, post, web, HttpRequest, HttpResponse};
 use log::{warn, debug};
 use redis::AsyncCommands;
-use std::path::Path;
+use std::path::{Path, Component};
 use sha2::{Digest, Sha256};
 use sqlx::{Row};
 use tokio::fs::{self};
@@ -76,8 +76,33 @@ async fn upload_file(
     hasher.update(username.as_bytes());
     let username_hash = hex::encode(hasher.finalize());
 
-    // Path to files storage
-    let path = format!("{}/{}/{}", data.storage_dir, username_hash, form.json.filename.clone());
+    let filename = form.json.filename.clone();
+
+    // 1. Basic validity + no traversal separators
+    if filename.is_empty()
+        || filename.len() > 255
+        || filename.contains('\0')
+        || filename.contains('/')
+        || filename.contains('\\')
+    {
+        return Err(AppError::BadRequest { msg: "Invalid filename".to_string() });
+    }
+
+    // 2. The name must be a single normal path component (no "..", no nested dirs)
+    let components: Vec<_> = Path::new(&filename).components().collect();
+    if components.len() != 1 || !matches!(components[0], Component::Normal(_)) {
+        return Err(AppError::BadRequest { msg: "Invalid filename".to_string() });
+    }
+
+    // 3. Containment check: final path must stay under storage_dir/username_hash
+    let base_dir = Path::new(&data.storage_dir).join(&username_hash);
+    let full_path = base_dir.join(&filename);
+    if !full_path.starts_with(&base_dir) {
+        return Err(AppError::BadRequest { msg: "Invalid filename".to_string() });
+    }
+
+    let path = full_path.to_string_lossy().to_string();
+    let dir_path = base_dir.to_string_lossy().to_string();
 
     // Check if file already exists
     if Path::new(path.as_str()).exists() {
@@ -85,14 +110,13 @@ async fn upload_file(
         return Err(AppError::BadRequest { msg: "File with this name already exists".to_string() });
     }
 
-    let dir_path = format!("{}/{}", data.storage_dir, username_hash);
-
-    // Create dirs for file of don't exist
+    // Create dirs for file if they don't exist
     fs::create_dir_all(&dir_path).await
         .map_err(|_| {
             warn!("Couldn't create dir");
             AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() }
         })?;
+
     // Save file on disk
     form.file.file.persist(&path)
         .map_err(|e| {
