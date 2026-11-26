@@ -3,16 +3,21 @@ use redis::AsyncCommands;
 use serde::Deserialize;
 use sqlx::Row;
 use log::{warn, debug};
+use argon2::{
+    Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::{
+        SaltString, rand_core::OsRng
+    }
+};
 
-use crate::AppState;
+use crate::{AppState, models::user::UserRegisterCredentials};
 use crate::models::jwt::{JwtTokenPair, TokenType};
-use crate::models::user::{DBUser, UserInfo, UserLoginCredentials};
+use crate::models::user::{UserInfo, UserLoginCredentials};
 use crate::services::auth::{get_and_validate_jwt, validate_jwt};
 use crate::utils::errors::AppError;
 
 #[post("/api/users/greet/")]
 pub async fn greet(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let token = get_and_validate_jwt(&req, &data.secret, TokenType::Access)?;
     let user_id = token.claims.sub.parse::<i32>().map_err(|_| AppError::InternalServerError { msg: "Failed to parse sub to id".to_string() })?;
 
     // Look up username in a database
@@ -27,38 +32,49 @@ pub async fn greet(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpRe
 }
 
 #[post("/api/users/")]
-pub async fn create_user(user: web::Json<DBUser>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
+pub async fn create_user(user: web::Json<UserRegisterCredentials>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     // User JSON to User struct
-    let user: DBUser = user.into_inner();
+    let user: UserRegisterCredentials = user.into_inner();
     
     // Look for a record with given email in the DB
-    let record = sqlx::query("select 1 from users where email = $1")
+    let record = sqlx::query("select 1 from users where email = $1 or username = $2")
         .bind(user.email.clone())
+        .bind(user.username.clone())
         .fetch_optional(&data.db_pool)
         .await
         .map_err(|e| {
-            warn!("Failed to fetch user [{:?}], query failed: {:?}", user, e);
+            warn!("Failed to fetch user, query failed: {:?}", e);
             AppError::InternalServerError { msg: "Failed to fetch user".to_string() }
         })?;
 
     if let Some(_) = record {
-        debug!("User already exists [{:?}]", user);
+        debug!("User already exists");
         return Err(AppError::BadRequest { msg: "User with this email already exists".to_string() });
     }
 
+    // Password hashing + salting
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let password_hash = argon2.hash_password(user.password.as_bytes(), &salt)
+        .map_err(|e| {
+            warn!("Failed to hash password [{:?}]", e);
+            AppError::InternalServerError { msg: "Failed to hash password".to_string() } 
+        })?;
+
     // Perform a query
-    let record = sqlx::query("insert into users(email, username, password) values ($1, $2, $3) returning id, email, username")
+    let record = sqlx::query("insert into users(email, username, password_hash, salt) values ($1, $2, $3, $4) returning id, email, username")
         .bind(user.email.clone())
         .bind(user.username.clone())
-        .bind(user.password_hash.clone())
+        .bind(password_hash.to_string())
+        .bind(salt.to_string())
         .fetch_one(&data.db_pool)
         .await
         .map_err(|e| {
-            warn!("Insert query failed for user [{:?}], query failed: {:?}", user, e);
+            warn!("Insert query failed for user, query failed: {:?}", e);
             AppError::InternalServerError { msg: "Insert user query failed".to_string() }
         })?;
 
-    debug!("Created user [{:?}]", user);
+    debug!("Created new user");
 
     Ok(HttpResponse::Ok().json(UserInfo {
         id: record.get("id"),
@@ -70,31 +86,38 @@ pub async fn create_user(user: web::Json<DBUser>, data: web::Data<AppState>) -> 
 #[post("api/token/get/")]
 async fn login(user: web::Json<UserLoginCredentials>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     // Look up user with given email
-    let record = sqlx::query("select password, id from users where email = $1")
+    let record = sqlx::query("select password_hash, id from users where email = $1")
         .bind(user.email.clone())
         .fetch_optional(&data.db_pool)
         .await
         .map_err(|e| {
-            warn!("Login query failed for user [{:?}], {:?}", user.0, e);
+            warn!("Login query failed for user {:?}", e);
             AppError::InternalServerError { msg: "Login query failed".to_string() }
         })?;
 
     // Send jwt token pair on successful login
     match record {
         Some(record) => {   
-            if user.verify_password(&record.get::<String, _>("password")) {
-                debug!("User logged in [{:?}]", user.into_inner());
+            let pass = &record.get::<String, _>("password_hash");
+            let hash = PasswordHash::new(pass)
+                .map_err(|e| {
+                    warn!("Password hash parsing failed [{:?}]", e);
+                    AppError::InternalServerError { msg: "Password hash parsing failed".to_string() }
+                })?;
+
+            if Argon2::default().verify_password(user.password.as_bytes(), &hash).is_ok() {
+                debug!("User logged in successfully");
                 Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
                     record.get::<i32, _>("id").to_string(),
                     data.secret.clone()
                 )))
             } else {
-                debug!("Wrong password in credentials [{:?}]", user.into_inner());
+                debug!("Wrong password in credentials");
                 Err(AppError::BadRequest { msg: "Wrong password".to_string() })
             }
         },
         None => {
-            debug!("No user with credentials [{:?}]", user.into_inner());
+            debug!("No user found with given credentials");
             Err(AppError::NotFound { msg: "No user found with given credentials".to_string() })
         }
     }
@@ -108,16 +131,11 @@ struct RefreshRequest {
 
 #[post("/api/token/refresh/")]
 async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let token = validate_jwt(req.refresh_token.clone().as_str(), data.secret.clone().as_str())
+    let token = validate_jwt(req.refresh_token.clone().as_str(), data.secret.clone().as_str(), TokenType::Refresh)
         .ok_or_else(|| {
-            debug!("Invalid token [{:?}]", req.0);
+            debug!("Invalid token");
             AppError::Unauthorized
         })?;
-
-    if token.claims.token_type != TokenType::Refresh {
-        debug!("Wrong token type [{:?}]", req.0);
-        return Err(AppError::BadRequest { msg: "Wrong token type".to_string() });
-    }
 
     // Check if token is blacklisted
     let mut conn = data.redis_pool.get().await
@@ -129,7 +147,7 @@ async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>
     // If token exists in Redis, it is blacklisted
     match conn.get::<_, Option<String>>(token.claims.jti.clone()).await {
         Ok(Some(_)) => {
-            debug!("Token is blacklisted: [{:?}]", req.0);
+            debug!("Token is blacklisted");
             Err(AppError::BadRequest { msg: "Token is blacklisted".to_string() })
         }
         Ok(None) => {
@@ -142,7 +160,7 @@ async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>
                 token.claims.exp.saturating_sub(chrono::Utc::now().timestamp() as usize) as u64
             ).await
             .map_err(|_| {
-                warn!("Failed to blacklist token [{:?}]", req.0);
+                warn!("Failed to blacklist token");
                 AppError::InternalServerError { msg: "Failed to blacklist the token".to_string() }
             })?;
 

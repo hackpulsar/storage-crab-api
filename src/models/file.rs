@@ -14,7 +14,7 @@ pub struct FileMetadata {
 
 #[derive(Debug, MultipartForm)]
 pub struct FileUploadForm {
-    #[multipart(limit = "100MB")]
+    #[multipart(limit = "10GB")]
     pub file: TempFile,
     pub json: Json<FileMetadata>,
 }
@@ -71,11 +71,11 @@ impl DBFile {
 
         match res {
             Some(record) => {
-                debug!("Found file with ID [{}]", id);
+                debug!("Found file");
                 Ok(record)
             }
             None => {
-                debug!("File with ID [{}] foesn't exist", id);
+                debug!("File does not exist");
                 return Err(AppError::NotFound { msg: "File doesn't exist".to_string() })
             }
         }
@@ -96,11 +96,11 @@ impl DBFile {
 
         match res {
             Some(record) => {
-                debug!("Found file with ID [{}]", id);
+                debug!("Found file");
                 Ok(record)
             }
             None => {
-                debug!("File with ID [{}] foesn't exist", id);
+                debug!("File does not exist");
                 return Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
             }
         }

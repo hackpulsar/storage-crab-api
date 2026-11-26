@@ -2,7 +2,7 @@ use actix_multipart::form::{MultipartForm};
 use actix_web::{get, post, web, HttpRequest, HttpResponse};
 use log::{warn, debug};
 use redis::AsyncCommands;
-use std::path::Path;
+use std::path::{Path, Component};
 use sha2::{Digest, Sha256};
 use sqlx::{Row};
 use tokio::fs::{self};
@@ -13,6 +13,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use crate::AppState;
 use crate::models::file::*;
 use crate::services::auth::{get_and_validate_jwt};
+use crate::models::jwt::TokenType;
 use crate::utils::errors::AppError;
 
 fn parse_user_id(sub: String) -> Result<i32, AppError> {
@@ -27,7 +28,7 @@ fn parse_user_id(sub: String) -> Result<i32, AppError> {
 // Searches for all the files associated with given user
 #[get("/api/files/")]
 async fn get_files(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let token = get_and_validate_jwt(&req, &data.secret, TokenType::Access)?;
     let user_id = parse_user_id(token.claims.sub)?;
 
     let records = sqlx::query("select * from files where user_id = $1")
@@ -35,7 +36,7 @@ async fn get_files(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpRe
         .fetch_all(&data.db_pool)
         .await
         .map_err(|_| {
-            warn!("Select files query failed for user_id: {}", user_id);
+            warn!("Select files query failed");
             AppError::InternalServerError { msg: "Select files query failed".to_string() }
         })?;
 
@@ -45,7 +46,7 @@ async fn get_files(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpRe
         .filter_map(|row| DBFile::from_row(&row).ok())
         .collect();
 
-    debug!("Files fetched {} files for user: {}", data.len(), user_id);
+    debug!("Files fetched {}", data.len());
 
     Ok(HttpResponse::Ok().json(data))
 }
@@ -57,7 +58,7 @@ async fn upload_file(
     MultipartForm(form): MultipartForm<FileUploadForm>,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse, AppError> {
-    let token = get_and_validate_jwt(&req, data.secret.clone().as_str())?;
+    let token = get_and_validate_jwt(&req, data.secret.clone().as_str(), TokenType::Access)?;
     let user_id = parse_user_id(token.claims.sub)?;
 
     // Retrieve username
@@ -66,7 +67,7 @@ async fn upload_file(
         .fetch_one(&data.db_pool)
         .await
         .map_err(|e| {
-            warn!("Username retrieve query failed for user {} with error: {:?}", user_id, e);
+            warn!("Username retrieve query failed with error: {:?}", e);
             AppError::InternalServerError { msg: "Username retrieve query failed".to_string() }
         })?
         .get("username");
@@ -76,27 +77,51 @@ async fn upload_file(
     hasher.update(username.as_bytes());
     let username_hash = hex::encode(hasher.finalize());
 
-    // Path to files storage
-    let path = format!("{}/{}/{}", data.storage_dir, username_hash, form.json.filename.clone());
+    let filename = form.json.filename.clone();
+
+    // 1. Basic validity + no traversal separators
+    if filename.is_empty()
+        || filename.len() > 255
+        || filename.contains('\0')
+        || filename.contains('/')
+        || filename.contains('\\')
+    {
+        return Err(AppError::BadRequest { msg: "Invalid filename".to_string() });
+    }
+
+    // 2. The name must be a single normal path component (no "..", no nested dirs)
+    let components: Vec<_> = Path::new(&filename).components().collect();
+    if components.len() != 1 || !matches!(components[0], Component::Normal(_)) {
+        return Err(AppError::BadRequest { msg: "Invalid filename".to_string() });
+    }
+
+    // 3. Containment check: final path must stay under storage_dir/username_hash
+    let base_dir = Path::new(&data.storage_dir).join(&username_hash);
+    let full_path = base_dir.join(&filename);
+    if !full_path.starts_with(&base_dir) {
+        return Err(AppError::BadRequest { msg: "Invalid filename".to_string() });
+    }
+
+    let path = full_path.to_string_lossy().to_string();
+    let dir_path = base_dir.to_string_lossy().to_string();
 
     // Check if file already exists
     if Path::new(path.as_str()).exists() {
-        debug!("File [{}] already exists", path);
+        debug!("File already exists");
         return Err(AppError::BadRequest { msg: "File with this name already exists".to_string() });
     }
 
-    let dir_path = format!("{}/{}", data.storage_dir, username_hash);
-
-    // Create dirs for file of don't exist
+    // Create dirs for file if they don't exist
     fs::create_dir_all(&dir_path).await
         .map_err(|_| {
-            warn!("Couldn't create dir [{}]", &dir_path);
+            warn!("Couldn't create dir");
             AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() }
         })?;
+
     // Save file on disk
     form.file.file.persist(&path)
         .map_err(|e| {
-            warn!("Couldn't write file to [{}] with error: {:?}", &path, e);
+            warn!("Couldn't write file with error: {:?}", e);
             AppError::InternalServerError { msg: "Couldn't write file".to_string() }
         })?;
 
@@ -114,7 +139,7 @@ async fn upload_file(
         })?;
 
     let file_id = record.get::<i32, _>("id");
-    debug!("File with ID [{}] uploaded to [{}]", file_id, path);
+    debug!("File uploaded");
 
     Ok(HttpResponse::Ok().json(FileUploadResponse { file_id: file_id, path }))
 }
@@ -123,7 +148,7 @@ async fn upload_file(
 #[get("/api/files/download/{file_id}/")]
 async fn download_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     // Token validation
-    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let token = get_and_validate_jwt(&req, &data.secret, TokenType::Access)?;
     let user_id = parse_user_id(token.claims.sub)?;
 
     // Check if the file exists in a db
@@ -137,11 +162,11 @@ async fn download_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Dat
     let file = fs::File::open(&path)
         .await
         .map_err(|e| {
-            warn!("Failed to open file [{}] with error: {:?}", path, e);
+            warn!("Failed to open file with error: {:?}", e);
             AppError::InternalServerError { msg: "Failed to open file".to_string() }
         })?;
 
-    debug!("File downloaded from path [{}]", path);
+    debug!("File downloaded");
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
@@ -159,7 +184,7 @@ async fn download_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Dat
 
 #[get("/api/files/download/shared/{share_code}/")]
 async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    get_and_validate_jwt(&req, &data.secret)?;
+    get_and_validate_jwt(&req, &data.secret, TokenType::Access)?;
 
     let mut conn = data.redis_pool
         .get().await
@@ -171,11 +196,11 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
     // Validate the share code
     let file_id: i32 = match conn.get(share_code.clone()).await {
         Ok(Some(id)) => {
-            debug!("File ID valid: {}", id);
+            debug!("File ID valid");
             id
         }
         Ok(None) => {
-            debug!("Invalid share code [{}]", share_code);
+            debug!("Invalid share code");
             return Err(AppError::BadRequest { msg: "Invalid share code".to_string() })
         }
         Err(_) => {
@@ -191,11 +216,11 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
     let file = fs::File::open(&path)
         .await
         .map_err(|e| {
-            warn!("Failed to open file [{}] with error: {:?}", path, e);
+            warn!("Failed to open file with error: {:?}", e);
             AppError::InternalServerError { msg: "Failed to open file".to_string() }
         })?;
 
-    debug!("Shared file downloaded from [{}] with code [{}]", path, share_code);
+    debug!("Shared file downloaded");
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
@@ -214,7 +239,7 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
 // Deletes the file completely
 #[post("/api/files/delete/{file_id}/")]
 async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let token = get_and_validate_jwt(&req, &data.secret, TokenType::Access)?;
     let user_id = parse_user_id(token.claims.sub)?;
     let file_id = file_identifier.into_inner();
 
@@ -241,7 +266,7 @@ async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: we
         .await
         .map_err(|_| AppError::InternalServerError { msg: "File delete query failed".to_string() })?;
 
-    debug!("File deleted from [{}]", path);
+    debug!("File deleted");
 
     // An empty OK response
     Ok(HttpResponse::NoContent().finish())
@@ -249,7 +274,7 @@ async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: we
 
 #[post("/api/files/share/{file_id}/")]
 async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let token = get_and_validate_jwt(&req, &data.secret, TokenType::Access)?;
     let user_id = parse_user_id(token.claims.sub)?;
     let file_id = file_id.into_inner();
 
@@ -271,7 +296,7 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
     if let Ok(Some(old_code)) = conn.get::<_, Option<String>>(file_id).await {
         // Delete old code key
         let _: () = conn.del(&old_code).await.map_err(|_| {
-            warn!("Failed to delete old share code [{}] for file [{}]", old_code, file_id);
+            warn!("Failed to delete old share code");
             AppError::InternalServerError { msg: "Failed to delete old share code".to_string() }
         })?;
     }
@@ -296,7 +321,7 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
                 // Code is unique, add it to redis with 5 minutes expiration time
                 let _:() = conn.set_ex(key, file_id, 5 * 60).await
                     .map_err(|_| {
-                        warn!("Failed to save share code [{}]", share_code);
+                        warn!("Failed to save share code");
                         AppError::InternalServerError { msg: "Failed to save share code".to_string() }
                     })?;
 
@@ -304,7 +329,7 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
                 // Overwrites previous data.
                 let _:() = conn.set_ex(file_id, key, 5 * 60).await
                     .map_err(|_| {
-                        warn!("Failed to save reverse mapping for share code [{}]", share_code);
+                        warn!("Failed to save reverse mapping for share code");
                         AppError::InternalServerError { msg: "Failed to save reverse mapping for share code".to_string() }
                     })?;
                 
