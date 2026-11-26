@@ -71,11 +71,11 @@ impl DBFile {
 
         match res {
             Some(record) => {
-                debug!("Found file with ID [{}]", id);
+                debug!("Found file");
                 Ok(record)
             }
             None => {
-                debug!("File with ID [{}] foesn't exist", id);
+                debug!("File does not exist");
                 return Err(AppError::NotFound { msg: "File doesn't exist".to_string() })
             }
         }
@@ -96,11 +96,11 @@ impl DBFile {
 
         match res {
             Some(record) => {
-                debug!("Found file with ID [{}]", id);
+                debug!("Found file");
                 Ok(record)
             }
             None => {
-                debug!("File with ID [{}] foesn't exist", id);
+                debug!("File does not exist");
                 return Err(AppError::InternalServerError { msg: "File doesn't exist".to_string() })
             }
         }
