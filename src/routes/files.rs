@@ -35,7 +35,7 @@ async fn get_files(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpRe
         .fetch_all(&data.db_pool)
         .await
         .map_err(|_| {
-            warn!("Select files query failed for user_id: {}", user_id);
+            warn!("Select files query failed");
             AppError::InternalServerError { msg: "Select files query failed".to_string() }
         })?;
 
@@ -45,7 +45,7 @@ async fn get_files(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpRe
         .filter_map(|row| DBFile::from_row(&row).ok())
         .collect();
 
-    debug!("Files fetched {} files for user: {}", data.len(), user_id);
+    debug!("Files fetched {}", data.len());
 
     Ok(HttpResponse::Ok().json(data))
 }
@@ -66,7 +66,7 @@ async fn upload_file(
         .fetch_one(&data.db_pool)
         .await
         .map_err(|e| {
-            warn!("Username retrieve query failed for user {} with error: {:?}", user_id, e);
+            warn!("Username retrieve query failed with error: {:?}", e);
             AppError::InternalServerError { msg: "Username retrieve query failed".to_string() }
         })?
         .get("username");
@@ -81,7 +81,7 @@ async fn upload_file(
 
     // Check if file already exists
     if Path::new(path.as_str()).exists() {
-        debug!("File [{}] already exists", path);
+        debug!("File already exists");
         return Err(AppError::BadRequest { msg: "File with this name already exists".to_string() });
     }
 
@@ -90,13 +90,13 @@ async fn upload_file(
     // Create dirs for file of don't exist
     fs::create_dir_all(&dir_path).await
         .map_err(|_| {
-            warn!("Couldn't create dir [{}]", &dir_path);
+            warn!("Couldn't create dir");
             AppError::InternalServerError { msg: "Couldn't create dirs for file".to_string() }
         })?;
     // Save file on disk
     form.file.file.persist(&path)
         .map_err(|e| {
-            warn!("Couldn't write file to [{}] with error: {:?}", &path, e);
+            warn!("Couldn't write file with error: {:?}", e);
             AppError::InternalServerError { msg: "Couldn't write file".to_string() }
         })?;
 
@@ -114,7 +114,7 @@ async fn upload_file(
         })?;
 
     let file_id = record.get::<i32, _>("id");
-    debug!("File with ID [{}] uploaded to [{}]", file_id, path);
+    debug!("File uploaded");
 
     Ok(HttpResponse::Ok().json(FileUploadResponse { file_id: file_id, path }))
 }
@@ -137,11 +137,11 @@ async fn download_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Dat
     let file = fs::File::open(&path)
         .await
         .map_err(|e| {
-            warn!("Failed to open file [{}] with error: {:?}", path, e);
+            warn!("Failed to open file with error: {:?}", e);
             AppError::InternalServerError { msg: "Failed to open file".to_string() }
         })?;
 
-    debug!("File downloaded from path [{}]", path);
+    debug!("File downloaded");
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
@@ -171,11 +171,11 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
     // Validate the share code
     let file_id: i32 = match conn.get(share_code.clone()).await {
         Ok(Some(id)) => {
-            debug!("File ID valid: {}", id);
+            debug!("File ID valid");
             id
         }
         Ok(None) => {
-            debug!("Invalid share code [{}]", share_code);
+            debug!("Invalid share code");
             return Err(AppError::BadRequest { msg: "Invalid share code".to_string() })
         }
         Err(_) => {
@@ -191,11 +191,11 @@ async fn download_shared_file(share_code: web::Path<String>, req: HttpRequest, d
     let file = fs::File::open(&path)
         .await
         .map_err(|e| {
-            warn!("Failed to open file [{}] with error: {:?}", path, e);
+            warn!("Failed to open file with error: {:?}", e);
             AppError::InternalServerError { msg: "Failed to open file".to_string() }
         })?;
 
-    debug!("Shared file downloaded from [{}] with code [{}]", path, share_code);
+    debug!("Shared file downloaded");
 
     Ok(HttpResponse::Ok()
         .content_type("application/octet-stream")
@@ -241,7 +241,7 @@ async fn delete_file(file_identifier: web::Path<i32>, req: HttpRequest, data: we
         .await
         .map_err(|_| AppError::InternalServerError { msg: "File delete query failed".to_string() })?;
 
-    debug!("File deleted from [{}]", path);
+    debug!("File deleted");
 
     // An empty OK response
     Ok(HttpResponse::NoContent().finish())
@@ -271,7 +271,7 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
     if let Ok(Some(old_code)) = conn.get::<_, Option<String>>(file_id).await {
         // Delete old code key
         let _: () = conn.del(&old_code).await.map_err(|_| {
-            warn!("Failed to delete old share code [{}] for file [{}]", old_code, file_id);
+            warn!("Failed to delete old share code");
             AppError::InternalServerError { msg: "Failed to delete old share code".to_string() }
         })?;
     }
@@ -296,7 +296,7 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
                 // Code is unique, add it to redis with 5 minutes expiration time
                 let _:() = conn.set_ex(key, file_id, 5 * 60).await
                     .map_err(|_| {
-                        warn!("Failed to save share code [{}]", share_code);
+                        warn!("Failed to save share code");
                         AppError::InternalServerError { msg: "Failed to save share code".to_string() }
                     })?;
 
@@ -304,7 +304,7 @@ async fn share_file(file_id: web::Path<i32>, req: HttpRequest, data: web::Data<A
                 // Overwrites previous data.
                 let _:() = conn.set_ex(file_id, key, 5 * 60).await
                     .map_err(|_| {
-                        warn!("Failed to save reverse mapping for share code [{}]", share_code);
+                        warn!("Failed to save reverse mapping for share code");
                         AppError::InternalServerError { msg: "Failed to save reverse mapping for share code".to_string() }
                     })?;
                 

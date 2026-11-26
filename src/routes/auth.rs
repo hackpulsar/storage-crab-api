@@ -42,12 +42,12 @@ pub async fn create_user(user: web::Json<UserRegisterCredentials>, data: web::Da
         .fetch_optional(&data.db_pool)
         .await
         .map_err(|e| {
-            warn!("Failed to fetch user [{:?}], query failed: {:?}", user, e);
+            warn!("Failed to fetch user, query failed: {:?}", e);
             AppError::InternalServerError { msg: "Failed to fetch user".to_string() }
         })?;
 
     if let Some(_) = record {
-        debug!("User already exists [{:?}]", user);
+        debug!("User already exists");
         return Err(AppError::BadRequest { msg: "User with this email already exists".to_string() });
     }
 
@@ -69,11 +69,11 @@ pub async fn create_user(user: web::Json<UserRegisterCredentials>, data: web::Da
         .fetch_one(&data.db_pool)
         .await
         .map_err(|e| {
-            warn!("Insert query failed for user [{:?}], query failed: {:?}", user, e);
+            warn!("Insert query failed for user, query failed: {:?}", e);
             AppError::InternalServerError { msg: "Insert user query failed".to_string() }
         })?;
 
-    debug!("Created user [{:?}]", user);
+    debug!("Created new user");
 
     Ok(HttpResponse::Ok().json(UserInfo {
         id: record.get("id"),
@@ -90,7 +90,7 @@ async fn login(user: web::Json<UserLoginCredentials>, data: web::Data<AppState>)
         .fetch_optional(&data.db_pool)
         .await
         .map_err(|e| {
-            warn!("Login query failed for user [{:?}], {:?}", user.0, e);
+            warn!("Login query failed for user {:?}", e);
             AppError::InternalServerError { msg: "Login query failed".to_string() }
         })?;
 
@@ -105,18 +105,18 @@ async fn login(user: web::Json<UserLoginCredentials>, data: web::Data<AppState>)
                 })?;
 
             if Argon2::default().verify_password(user.password.as_bytes(), &hash).is_ok() {
-                debug!("User logged in [{:?}]", user.into_inner());
+                debug!("User logged in successfully");
                 Ok(HttpResponse::Ok().json(JwtTokenPair::generate_for(
                     record.get::<i32, _>("id").to_string(),
                     data.secret.clone()
                 )))
             } else {
-                debug!("Wrong password in credentials [{:?}]", user.into_inner());
+                debug!("Wrong password in credentials");
                 Err(AppError::BadRequest { msg: "Wrong password".to_string() })
             }
         },
         None => {
-            debug!("No user with credentials [{:?}]", user.into_inner());
+            debug!("No user found with given credentials");
             Err(AppError::NotFound { msg: "No user found with given credentials".to_string() })
         }
     }
@@ -132,12 +132,12 @@ struct RefreshRequest {
 async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let token = validate_jwt(req.refresh_token.clone().as_str(), data.secret.clone().as_str())
         .ok_or_else(|| {
-            debug!("Invalid token [{:?}]", req.0);
+            debug!("Invalid token");
             AppError::Unauthorized
         })?;
 
     if token.claims.token_type != TokenType::Refresh {
-        debug!("Wrong token type [{:?}]", req.0);
+        debug!("Wrong token type");
         return Err(AppError::BadRequest { msg: "Wrong token type".to_string() });
     }
 
@@ -151,7 +151,7 @@ async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>
     // If token exists in Redis, it is blacklisted
     match conn.get::<_, Option<String>>(token.claims.jti.clone()).await {
         Ok(Some(_)) => {
-            debug!("Token is blacklisted: [{:?}]", req.0);
+            debug!("Token is blacklisted");
             Err(AppError::BadRequest { msg: "Token is blacklisted".to_string() })
         }
         Ok(None) => {
@@ -164,7 +164,7 @@ async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>
                 token.claims.exp.saturating_sub(chrono::Utc::now().timestamp() as usize) as u64
             ).await
             .map_err(|_| {
-                warn!("Failed to blacklist token [{:?}]", req.0);
+                warn!("Failed to blacklist token");
                 AppError::InternalServerError { msg: "Failed to blacklist the token".to_string() }
             })?;
 

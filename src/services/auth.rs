@@ -40,7 +40,7 @@ pub fn validate_jwt(token: &str, secret: &str) -> Option<TokenData<Claims>> {
 pub fn get_and_validate_jwt(req: &HttpRequest, secret: &str) -> Result<TokenData<Claims>, AppError> {
     let token = get_jwt_from(req)?;
     validate_jwt(token, secret).ok_or_else(|| {
-        debug!("Unathorized access with token [{}]", token);
+        debug!("Unauthorized access");
         AppError::Unauthorized
     })
 }

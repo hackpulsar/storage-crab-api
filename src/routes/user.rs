@@ -13,7 +13,7 @@ use log::{warn, debug};
 pub async fn me(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
     let token = get_and_validate_jwt(&req, &data.secret)?;
     let user_id = token.claims.sub.parse::<i32>().map_err(|_| { 
-        warn!("Failed to parse sub to id [{:?}]", token.claims);
+        warn!("Failed to parse sub to id");
         AppError::InternalServerError { msg: "Failed to parse sub to id".to_string() }
     })?;
 
@@ -30,7 +30,7 @@ pub async fn me(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpRespo
     let email = record.get("email");
     let username = record.get("username");
 
-    debug!("Fetched user data [user_id: {}, email: {}, username: {} ]", user_id, email, username);
+    debug!("Fetched user data");
 
     Ok(HttpResponse::Ok().json(UserInfo {
         id: user_id,
