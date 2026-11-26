@@ -37,8 +37,9 @@ pub async fn create_user(user: web::Json<UserRegisterCredentials>, data: web::Da
     let user: UserRegisterCredentials = user.into_inner();
     
     // Look for a record with given email in the DB
-    let record = sqlx::query("select 1 from users where email = $1")
+    let record = sqlx::query("select 1 from users where email = $1 or username = $2")
         .bind(user.email.clone())
+        .bind(user.username.clone())
         .fetch_optional(&data.db_pool)
         .await
         .map_err(|e| {

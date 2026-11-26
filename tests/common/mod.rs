@@ -89,7 +89,7 @@ pub async fn register(
 pub fn create_unique_test_user() -> UserRegisterCredentials {
     return UserRegisterCredentials {
         email: format!("{}@test.com", Uuid::new_v4()).to_string(),
-        username: "test".to_string(),
+        username: format!("{}test", Uuid::new_v4()).to_string(),
         password: "test".to_string()
     };
 }

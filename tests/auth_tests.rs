@@ -61,13 +61,22 @@ async fn test_register_already_exists() {
     let ctx = setup().await;
     let app = make_app!(ctx);
 
-    let new_user = create_unique_test_user();
+    let user_a = create_unique_test_user();
+    let mut user_b = create_unique_test_user();
 
-    let resp = register(&app, &new_user).await;
+    let resp = register(&app, &user_a).await;
     assert_eq!(resp.status(), 200);
 
-    // Try register same user again
-    let resp = register(&app, &new_user).await;
+    // Try register a user with the same username
+    let user_b_username = user_b.username;
+    user_b.username = user_a.username;
+    let resp = register(&app, &user_b).await;
+    assert!(!resp.status().is_success());
+
+    // Try register a user with the same email
+    user_b.username = user_b_username;
+    user_b.email = user_a.email;
+    let resp = register(&app, &user_b).await;
     assert!(!resp.status().is_success());
 }
 
