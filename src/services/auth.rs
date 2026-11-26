@@ -2,7 +2,7 @@ use actix_web::HttpRequest;
 use jsonwebtoken::{decode, DecodingKey, TokenData, Validation};
 use log::{debug};
 
-use crate::models::jwt::Claims;
+use crate::models::jwt::{Claims, TokenType};
 use crate::utils::errors::AppError;
 
 // Parses token from request
@@ -29,17 +29,21 @@ pub fn get_jwt_from(request: &HttpRequest) -> Result<&str, AppError> {
 }
 
 // Validates the JWT
-pub fn validate_jwt(token: &str, secret: &str) -> Option<TokenData<Claims>> {
-    decode::<Claims>(
+pub fn validate_jwt(token: &str, secret: &str, expected: TokenType) -> Option<TokenData<Claims>> {
+    let t = decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
         &Validation::default(),
-    ).ok()
+    ).ok()?;
+    if t.claims.token_type != expected {
+        return None;
+    }
+    Some(t)
 }
 
-pub fn get_and_validate_jwt(req: &HttpRequest, secret: &str) -> Result<TokenData<Claims>, AppError> {
+pub fn get_and_validate_jwt(req: &HttpRequest, secret: &str, expected: TokenType) -> Result<TokenData<Claims>, AppError> {
     let token = get_jwt_from(req)?;
-    validate_jwt(token, secret).ok_or_else(|| {
+    validate_jwt(token, secret, expected).ok_or_else(|| {
         debug!("Unauthorized access");
         AppError::Unauthorized
     })

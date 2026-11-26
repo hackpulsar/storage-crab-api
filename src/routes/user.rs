@@ -2,6 +2,7 @@ use actix_web::{get, web, HttpRequest, HttpResponse};
 
 use crate::{models::user::UserInfo};
 use crate::services::auth::get_and_validate_jwt;
+use crate::models::jwt::TokenType;
 use crate::utils::errors::AppError;
 use crate::AppState;
 use sqlx::Row;
@@ -11,7 +12,7 @@ use log::{warn, debug};
 // Email and username.
 #[get("/api/users/me/")]
 pub async fn me(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let token = get_and_validate_jwt(&req, &data.secret, TokenType::Access)?;
     let user_id = token.claims.sub.parse::<i32>().map_err(|_| { 
         warn!("Failed to parse sub to id");
         AppError::InternalServerError { msg: "Failed to parse sub to id".to_string() }

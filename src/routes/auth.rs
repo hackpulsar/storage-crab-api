@@ -17,7 +17,7 @@ use crate::utils::errors::AppError;
 
 #[post("/api/users/greet/")]
 pub async fn greet(req: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let token = get_and_validate_jwt(&req, &data.secret)?;
+    let token = get_and_validate_jwt(&req, &data.secret, TokenType::Access)?;
     let user_id = token.claims.sub.parse::<i32>().map_err(|_| AppError::InternalServerError { msg: "Failed to parse sub to id".to_string() })?;
 
     // Look up username in a database
@@ -131,16 +131,11 @@ struct RefreshRequest {
 
 #[post("/api/token/refresh/")]
 async fn refresh_token(req: web::Json<RefreshRequest>, data: web::Data<AppState>) -> Result<HttpResponse, AppError> {
-    let token = validate_jwt(req.refresh_token.clone().as_str(), data.secret.clone().as_str())
+    let token = validate_jwt(req.refresh_token.clone().as_str(), data.secret.clone().as_str(), TokenType::Refresh)
         .ok_or_else(|| {
             debug!("Invalid token");
             AppError::Unauthorized
         })?;
-
-    if token.claims.token_type != TokenType::Refresh {
-        debug!("Wrong token type");
-        return Err(AppError::BadRequest { msg: "Wrong token type".to_string() });
-    }
 
     // Check if token is blacklisted
     let mut conn = data.redis_pool.get().await
